@@ -100,14 +100,14 @@
     <div style="flex:1">
       <h3>Support</h3>
       <table>
-        <thead><tr><th>Price</th><th>Strength</th><th>Armed</th></tr></thead>
+        <thead><tr><th>Price</th><th>Strength</th><th>Score</th><th>Armed</th></tr></thead>
         <tbody id="db-sup-body"></tbody>
       </table>
     </div>
     <div style="flex:1">
       <h3>Resistance</h3>
       <table>
-        <thead><tr><th>Price</th><th>Strength</th><th>Armed</th></tr></thead>
+        <thead><tr><th>Price</th><th>Strength</th><th>Score</th><th>Armed</th></tr></thead>
         <tbody id="db-res-body"></tbody>
       </table>
     </div>
@@ -155,17 +155,30 @@ function renderPreview(lines, sym, date){
   document.getElementById('msg').textContent = '';
 }
 
-function renderDb(rows, sym, date){
+let _scoreMap = {};
+
+function renderDb(rows, sym, date, scores){
+  scores = scores || [];
+  _scoreMap = {};
+  for(const s of scores) _scoreMap[s.price] = s.total_score;
+
   const sup = rows.filter(r=>r.line_type==='SUPPORT').sort((a,b)=>b.price-a.price);
   const res = rows.filter(r=>r.line_type==='RESISTANCE').sort((a,b)=>b.price-a.price);
 
   document.getElementById('db-sym').textContent  = sym;
   document.getElementById('db-date').textContent = date;
 
+  function scoreCell(price){
+    const sc = _scoreMap[price];
+    if(sc == null) return '<span style="color:#6e7681">—</span>';
+    const color = sc >= 20 ? '#3fb950' : sc >= 14 ? '#d29922' : sc >= 8 ? '#f85149' : '#6e7681';
+    return `<span style="color:${color};font-weight:bold">${sc.toFixed(1)}</span>`;
+  }
+
   function row(r){
     const armed = r.armed ? '<span class="FILLED">yes</span>' : '<span style="color:#6e7681">no</span>';
     const pcls  = r.line_type==='SUPPORT' ? 'SUPPORT' : 'SELL';
-    return `<tr><td class="${pcls}">${r.price.toFixed(2)}</td><td>${STRENGTH[r.strength]||r.strength}</td><td>${armed}</td></tr>`;
+    return `<tr><td class="${pcls}">${r.price.toFixed(2)}</td><td>${STRENGTH[r.strength]||r.strength}</td><td>${scoreCell(r.price)}</td><td>${armed}</td></tr>`;
   }
   document.getElementById('db-sup-body').innerHTML = sup.map(row).join('');
   document.getElementById('db-res-body').innerHTML = res.map(row).join('');
@@ -269,10 +282,10 @@ document.getElementById('save-btn').addEventListener('click', ()=>{
 
 // ── Load existing DB lines ────────────────────────────────────────────────────
 function loadDb(sym, date){
-  fetch(`/api/lines?symbol=${encodeURIComponent(sym)}&date=${encodeURIComponent(date)}`)
-    .then(r=>r.json())
-    .then(rows=>renderDb(rows, sym, date))
-    .catch(()=>{});
+  Promise.all([
+    fetch(`/api/lines?symbol=${encodeURIComponent(sym)}&date=${encodeURIComponent(date)}`).then(r=>r.json()),
+    fetch(`/api/line-scores?date=${encodeURIComponent(date)}`).then(r=>r.json()).catch(()=>[]),
+  ]).then(([rows, scores]) => renderDb(rows, sym, date, scores)).catch(()=>{});
 }
 
 document.getElementById('load-btn').addEventListener('click', ()=>{

@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Algo Performance — Galao{% endblock %}
+
+{% block content %}
+<h2>Algo Performance Dashboard</h2>
+
+<div class="filters" style="margin-bottom:14px">
+  <label style="color:#8b949e;font-size:12px">Days:</label>
+  <select id="days-sel">
+    <option value="7">7</option>
+    <option value="14">14</option>
+    <option value="30" selected>30</option>
+    <option value="90">90</option>
+  </select>
+  <button id="refresh-btn">Refresh</button>
+  <span id="status-msg" style="font-size:11px;color:#8b949e"></span>
+</div>
+
+<!-- Summary cards -->
+<div class="card-row" id="summary-cards" style="margin-bottom:16px"></div>
+
+<!-- Per-approach signal counts -->
+<div class="card" style="max-width:700px">
+  <h2 style="margin-top:0">Signal Counts by Approach</h2>
+  <table>
+    <thead><tr>
+      <th>Approach</th>
+      <th>Signals</th>
+      <th>Active Days</th>
+      <th>Avg/Day</th>
+    </tr></thead>
+    <tbody id="approach-body"></tbody>
+  </table>
+</div>
+
+<!-- Score distribution -->
+<div class="card" style="max-width:700px">
+  <h2 style="margin-top:0">Score Distribution (Line Scores)</h2>
+  <table>
+    <thead><tr>
+      <th>Date</th>
+      <th>Price</th>
+      <th>Total</th>
+      <th>Source</th>
+      <th>Param</th>
+      <th>History</th>
+      <th>Pipeline</th>
+      <th>Strength</th>
+    </tr></thead>
+    <tbody id="scores-body"></tbody>
+  </table>
+</div>
+
+<!-- Recent line performance -->
+<div class="card" style="max-width:700px">
+  <h2 style="margin-top:0">Recent Line Performance</h2>
+  <table>
+    <thead><tr>
+      <th>Date</th>
+      <th>Price</th>
+      <th>Type</th>
+      <th>Tested</th>
+      <th>Respected</th>
+      <th>Won</th>
+      <th>Lost</th>
+      <th>PnL pts</th>
+    </tr></thead>
+    <tbody id="perf-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STRENGTH_CLR = {1:'#3fb950', 2:'#d29922', 3:'#f85149'};
+const STRENGTH_LBL = {1:'strong', 2:'medium', 3:'weak'};
+
+function scoreColor(s){
+  if(s == null) return '#6e7681';
+  if(s >= 20) return '#3fb950';
+  if(s >= 14) return '#d29922';
+  if(s >= 8)  return '#f85149';
+  return '#6e7681';
+}
+
+function load(){
+  const days = document.getElementById('days-sel').value;
+  document.getElementById('status-msg').textContent = 'Loading...';
+
+  fetch(`/api/algo-performance?days=${days}`)
+    .then(r=>r.json())
+    .then(d=>{
+      renderSummary(d.summary);
+      renderApproaches(d.approaches);
+      renderScores(d.score_distribution);
+      renderPerf(d.recent_performance);
+      document.getElementById('status-msg').textContent =
+        `Updated ${new Date().toLocaleTimeString()}`;
+    })
+    .catch(e=>{
+      document.getElementById('status-msg').textContent = '✗ ' + e;
+    });
+}
+
+function renderSummary(s){
+  const cards = [
+    {val: s.total_lines,  lbl: 'Total Lines'},
+    {val: s.tested,       lbl: 'Tested'},
+    {val: s.bounced,      lbl: 'Bounced'},
+    {val: s.broken,       lbl: 'Broken'},
+    {val: s.win_rate_pct != null ? s.win_rate_pct + '%' : '—', lbl: 'Win Rate'},
+  ];
+  document.getElementById('summary-cards').innerHTML = cards.map(c=>
+    `<div class="stat-card"><div class="val">${c.val ?? '—'}</div><div class="lbl">${c.lbl}</div></div>`
+  ).join('');
+}
+
+function renderApproaches(rows){
+  document.getElementById('approach-body').innerHTML = rows.map(r=>{
+    const avg = r.active_days > 0 ? (r.signal_count / r.active_days).toFixed(1) : '—';
+    const isCL   = r.approach_id.startsWith('CL');
+    const color  = isCL ? '#58a6ff' : '#e3b341';
+    return `<tr>
+      <td style="color:${color};font-weight:bold">${r.approach_id}</td>
+      <td>${r.signal_count}</td>
+      <td>${r.active_days}</td>
+      <td>${avg}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderScores(rows){
+  document.getElementById('scores-body').innerHTML = rows.slice(0,100).map(r=>{
+    const sc   = r.total_score;
+    const clr  = scoreColor(sc);
+    const pip  = r.entered_pipeline ? '<span class="FILLED">yes</span>' : '<span style="color:#6e7681">no</span>';
+    const sth  = r.strength_assigned != null
+                  ? `<span style="color:${STRENGTH_CLR[r.strength_assigned]}">${STRENGTH_LBL[r.strength_assigned]}</span>`
+                  : '—';
+    return `<tr>
+      <td class="ts">${r.date}</td>
+      <td>${r.price != null ? parseFloat(r.price).toFixed(2) : '—'}</td>
+      <td style="color:${clr};font-weight:bold">${sc != null ? sc.toFixed(1) : '—'}</td>
+      <td>${r.axis_source != null ? r.axis_source.toFixed(1) : '—'}</td>
+      <td>${r.axis_param  != null ? r.axis_param.toFixed(1)  : '—'}</td>
+      <td>${r.axis_history != null ? r.axis_history.toFixed(1) : '—'}</td>
+      <td>${pip}</td>
+      <td>${sth}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPerf(rows){
+  document.getElementById('perf-body').innerHTML = rows.map(r=>{
+    const tested    = r.was_tested
+      ? '<span class="FILLED">yes</span>' : '<span style="color:#6e7681">no</span>';
+    let respected   = '—';
+    if(r.price_respected === 1) respected = '<span class="FILLED">bounce</span>';
+    else if(r.price_respected === 0) respected = '<span class="ERROR">break</span>';
+    const typeCls  = r.line_type === 'SUPPORT' ? 'SUPPORT' : 'SELL';
+    const pnl      = r.pnl_points_total;
+    const pnlStr   = pnl != null ? `<span class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl.toFixed(2)}</span>` : '—';
+    return `<tr>
+      <td class="ts">${r.date}</td>
+      <td class="${typeCls}">${parseFloat(r.price).toFixed(2)}</td>
+      <td class="${typeCls}">${r.line_type}</td>
+      <td>${tested}</td>
+      <td>${respected}</td>
+      <td>${r.trades_won ?? 0}</td>
+      <td>${r.trades_lost ?? 0}</td>
+      <td>${pnlStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('refresh-btn').addEventListener('click', load);
+document.getElementById('days-sel').addEventListener('change', load);
+
+load();
+</script>
+{% endblock %}

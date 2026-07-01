@@ -1105,6 +1105,79 @@ def lines_page():
                            symbols=cfg.symbols or ["MES"])
 
 
+@app.route("/algo-performance")
+def algo_performance_page():
+    return render_template("algo_performance.html", active="algo_performance")
+
+
+# ── Algo Score / Performance APIs ─────────────────────────────────────────────
+
+@app.route("/api/line-scores")
+def api_line_scores():
+    """GET /api/line-scores?date=YYYY-MM-DD  — line_scores rows for the date."""
+    date_str = request.args.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    with get_db(_get_db_path()) as con:
+        rows = _rows_to_list(con.execute(
+            "SELECT * FROM line_scores WHERE date=? ORDER BY total_score DESC",
+            (date_str,)
+        ).fetchall())
+    return jsonify(rows)
+
+
+@app.route("/api/algo-performance")
+def api_algo_performance():
+    """
+    GET /api/algo-performance?days=30
+    Returns per-algo approach statistics from line_performance + algo_signals.
+    """
+    days  = int(request.args.get("days", 30))
+    limit = int(request.args.get("limit", 500))
+
+    with get_db(_get_db_path()) as con:
+        # Overall line performance (bounce/break stats)
+        perf_rows = _rows_to_list(con.execute(
+            "SELECT date, price, line_type, was_tested, price_respected,"
+            "       trades_won, trades_lost, pnl_points_total"
+            " FROM line_performance"
+            " ORDER BY date DESC LIMIT ?",
+            (limit,)
+        ).fetchall())
+
+        # Per-approach signal counts
+        approach_rows = _rows_to_list(con.execute(
+            "SELECT approach_id, COUNT(*) as signal_count,"
+            "       COUNT(DISTINCT date) as active_days"
+            " FROM algo_signals"
+            " GROUP BY approach_id ORDER BY approach_id"
+        ).fetchall())
+
+        # Score distribution
+        score_rows = _rows_to_list(con.execute(
+            "SELECT date, total_score, axis_source, axis_param, axis_history,"
+            "       entered_pipeline, strength_assigned"
+            " FROM line_scores ORDER BY date DESC LIMIT ?",
+            (limit,)
+        ).fetchall())
+
+    tested   = [r for r in perf_rows if r["was_tested"]]
+    bounced  = [r for r in tested if r["price_respected"] == 1]
+    broken   = [r for r in tested if r["price_respected"] == 0]
+    win_rate = round(100.0 * len(bounced) / len(tested), 1) if tested else None
+
+    return jsonify({
+        "summary": {
+            "total_lines":  len(perf_rows),
+            "tested":       len(tested),
+            "bounced":      len(bounced),
+            "broken":       len(broken),
+            "win_rate_pct": win_rate,
+        },
+        "approaches": approach_rows,
+        "score_distribution": score_rows,
+        "recent_performance": perf_rows[:50],
+    })
+
+
 # ── Fetch Status ──────────────────────────────────────────────────────────────
 
 _FETCH_HOLIDAYS = {
