@@ -79,3 +79,9 @@ grader:
 
 backtest:
   symbol: MES
+
+mailer:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  from_addr: gavish.oren@gmail.com
+  to_addr: gavish.oren@gmail.com

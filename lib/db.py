@@ -185,11 +185,66 @@ CREATE INDEX IF NOT EXISTS idx_completed_source     ON completed_trades(source);
 CREATE INDEX IF NOT EXISTS idx_completed_exit_time  ON completed_trades(exit_time);
 """
 
+_ALGO_SCHEMA = """
+CREATE TABLE IF NOT EXISTS algo_signals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    approach_id TEXT    NOT NULL,
+    category    TEXT    NOT NULL,
+    date        TEXT    NOT NULL,
+    price       REAL    NOT NULL,
+    direction   TEXT,
+    strength    REAL    NOT NULL,
+    confidence  REAL    NOT NULL DEFAULT 1.0,
+    tags        TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS line_scores (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    date             TEXT    NOT NULL,
+    price            REAL    NOT NULL,
+    line_type        TEXT    NOT NULL,
+    total_score      REAL    NOT NULL,
+    axis_source      REAL    NOT NULL,
+    axis_param       REAL    NOT NULL,
+    axis_history     REAL    NOT NULL,
+    sources_json     TEXT    NOT NULL,
+    entered_pipeline INTEGER NOT NULL DEFAULT 0,
+    strength_assigned INTEGER,
+    scored_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS line_performance (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    date             TEXT    NOT NULL,
+    price            REAL    NOT NULL,
+    line_type        TEXT    NOT NULL,
+    was_tested       INTEGER NOT NULL DEFAULT 0,
+    price_respected  INTEGER,
+    trades_won       INTEGER NOT NULL DEFAULT 0,
+    trades_lost      INTEGER NOT NULL DEFAULT 0,
+    pnl_points_total REAL    NOT NULL DEFAULT 0.0,
+    recorded_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_algo_signals_date_approach ON algo_signals(date, approach_id);
+CREATE INDEX IF NOT EXISTS idx_algo_signals_date_price    ON algo_signals(date, price);
+CREATE INDEX IF NOT EXISTS idx_line_scores_date_price     ON line_scores(date, price);
+CREATE INDEX IF NOT EXISTS idx_line_perf_date_price       ON line_performance(date, price);
+"""
+
+
+def init_algo_tables(path: Path = None):
+    """Create the 3 algo tables (algo_signals, line_scores, line_performance). Idempotent."""
+    with get_db(path) as con:
+        con.executescript(_ALGO_SCHEMA)
+
 
 def init_db(path: Path = None):
     """Create all tables and indexes if they don't exist."""
     with get_db(path) as con:
         con.executescript(_SCHEMA)
+    init_algo_tables(path)
     # Migrations for existing DBs — safe to re-run
     _migrate(path)
 
@@ -485,7 +540,8 @@ def self_test() -> bool:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()}
             expected = {"commands", "positions", "ib_events", "system_state",
-                        "critical_lines", "release_notes", "fetch_log", "completed_trades"}
+                        "critical_lines", "release_notes", "fetch_log", "completed_trades",
+                        "algo_signals", "line_scores", "line_performance"}
             assert expected <= tables, f"Missing tables: {expected - tables}"
 
             # 2. WAL mode is active

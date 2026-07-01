@@ -1,0 +1,49 @@
+data:
+  history_path: data/history_shared    # new PC drops CSVs here — configure real network path
+  processed_path: data/algo_processed
+  lookback_days: 5
+  min_session_rows: 1000
+  symbols: [MES, MNQ, MYM, M2K]
+  primary_symbol: MES
+
+cl1:
+  min_prominence: 1.5
+  min_vol_pct: 0.01
+
+cl2:
+  min_visits: 3
+  min_bounce_score: 2.0
+
+cl3:
+  min_delta_magnitude: 50
+
+cl4:
+  lookback_days: 5
+  min_persistence: 3
+
+cl5:
+  min_velocity: 0.5
+
+corr:
+  lead_window_seconds: 60
+  spread_window_ticks: 200
+  anomaly_threshold: 2.0
+  confluence_min_instruments: 3
+  confluence_tick_range: 2
+
+scorer:
+  weights:
+    cl_per_algo: 2
+    corr_per_algo: 3
+    divergence_penalty: -3
+    poc_bonus: 3
+    vah_val_bonus: 2
+    clean_price_bonus: 2
+    session_level_bonus: 2
+    proximity_penalty: -2
+    history_max: 15
+  thresholds:
+    strong: 20
+    medium: 14
+    weak: 8
+  bracket_sizes: [2, 4]

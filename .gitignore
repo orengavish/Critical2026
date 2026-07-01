@@ -7,6 +7,9 @@ logs/
 *.csv
 .claude/settings.local.json
 
+# secrets — never commit
+trader/secrets.yaml
+
 # out of scope for this project
 back-trading/
 versions/
