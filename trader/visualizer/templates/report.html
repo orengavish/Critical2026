@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}P&L Report — Galao{% endblock %}
+{% block content %}
+<h2>P&amp;L Report <span id="refresh-indicator"></span></h2>
+
+<div class="filters" style="margin-bottom:14px">
+  <select id="f-source" onchange="load()">
+    <option value="">All Sources</option>
+    <option value="random_mkt">random_mkt</option>
+    <option value="random_lmt">random_lmt</option>
+    <option value="random_stp">random_stp</option>
+    <option value="critical_line">critical_line</option>
+    <option value="test">test</option>
+  </select>
+  <select id="f-symbol" onchange="load()">
+    <option value="">All Symbols</option>
+    <option value="MES">MES</option>
+  </select>
+  <button onclick="load()">Refresh</button>
+</div>
+
+<!-- Summary cards -->
+<div class="card-row" id="summary-cards" style="margin-bottom:14px"></div>
+
+<!-- By-source table -->
+<h2>By Source</h2>
+<div style="overflow-x:auto;margin-bottom:14px">
+<table>
+  <thead><tr>
+    <th>Source</th><th>Trades</th><th>Wins</th><th>Losses</th>
+    <th>Win %</th><th>Avg P&amp;L</th><th>Total P&amp;L</th>
+  </tr></thead>
+  <tbody id="src-tbody"></tbody>
+</table>
+</div>
+
+<!-- By exit reason -->
+<h2>By Exit Reason</h2>
+<div style="overflow-x:auto;margin-bottom:14px">
+<table>
+  <thead><tr><th>Reason</th><th>Count</th><th>%</th></tr></thead>
+  <tbody id="exit-tbody"></tbody>
+</table>
+</div>
+
+<!-- Equity curve -->
+<h2>Equity Curve (cumulative P&amp;L pts)</h2>
+<div id="chart-wrap" style="margin-bottom:14px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <svg id="equity-svg" width="100%" height="200" style="display:block"></svg>
+</div>
+
+<!-- Trade table -->
+<h2>Closed Trades</h2>
+<div class="filters" style="margin-bottom:6px">
+  <select id="f-dir" onchange="filterTrades()">
+    <option value="">BUY+SELL</option>
+    <option value="BUY">BUY</option>
+    <option value="SELL">SELL</option>
+  </select>
+  <select id="f-reason" onchange="filterTrades()">
+    <option value="">All Reasons</option>
+    <option value="TP">TP</option>
+    <option value="SL">SL</option>
+    <option value="STAGNATION">STAGNATION</option>
+    <option value="SHUTDOWN">SHUTDOWN</option>
+    <option value="MANUAL">MANUAL</option>
+  </select>
+  <span id="trade-count" style="color:#8b949e;font-size:11px"></span>
+</div>
+<div style="overflow-x:auto">
+<table>
+  <thead><tr>
+    <th onclick="sortTrades('id')">ID</th>
+    <th>Source</th>
+    <th>Symbol</th><th>Dir</th><th>Type</th>
+    <th>Entry</th><th>TP</th><th>SL</th><th>Bkt</th>
+    <th>Fill</th><th>Exit</th><th>Reason</th>
+    <th onclick="sortTrades('pnl_points')">P&amp;L pts</th>
+    <th class="ts">Fill Time</th><th class="ts">Exit Time</th>
+  </tr></thead>
+  <tbody id="trade-tbody"></tbody>
+</table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _data = {trades:[], by_source:[], by_exit:[], summary:{}, equity_curve:[]};
+let _sortKey = 'id', _sortAsc = false;
+
+function pnlClass(v){ return v == null ? '' : v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+function pnlFmt(v){ return v == null ? '' : (v >= 0 ? '+' : '') + v.toFixed(2); }
+
+function renderSummary(s){
+  const cards = [
+    {lbl:'Trades',       val: s.total_trades ?? '—'},
+    {lbl:'Total P&L',    val: s.total_pnl != null ? (s.total_pnl>=0?'+':'')+s.total_pnl.toFixed(2)+' pts' : '—', cls: pnlClass(s.total_pnl)},
+    {lbl:'Win Rate',     val: s.win_rate  != null ? s.win_rate+'%' : '—'},
+    {lbl:'Avg P&L',      val: s.avg_pnl   != null ? (s.avg_pnl>=0?'+':'')+s.avg_pnl.toFixed(2)+' pts' : '—', cls: pnlClass(s.avg_pnl)},
+    {lbl:'Best Trade',   val: s.best_trade  != null ? '+'+s.best_trade.toFixed(2) : '—', cls:'pnl-pos'},
+    {lbl:'Worst Trade',  val: s.worst_trade != null ? s.worst_trade.toFixed(2) : '—', cls:'pnl-neg'},
+  ];
+  document.getElementById('summary-cards').innerHTML = cards.map(c=>
+    `<div class="stat-card"><div class="val ${c.cls||''}">${c.val}</div><div class="lbl">${c.lbl}</div></div>`
+  ).join('');
+}
+
+function renderBySource(rows){
+  document.getElementById('src-tbody').innerHTML = rows.map(r=>`<tr>
+    <td>${r.source}</td>
+    <td>${r.count}</td>
+    <td class="pnl-pos">${r.wins}</td>
+    <td class="pnl-neg">${r.losses}</td>
+    <td>${r.win_rate != null ? r.win_rate+'%' : '—'}</td>
+    <td class="${pnlClass(r.avg_pnl)}">${r.avg_pnl != null ? (r.avg_pnl>=0?'+':'')+r.avg_pnl.toFixed(2) : '—'}</td>
+    <td class="${pnlClass(r.total_pnl)}">${(r.total_pnl>=0?'+':'')+r.total_pnl.toFixed(2)}</td>
+  </tr>`).join('');
+}
+
+function renderByExit(rows, total){
+  document.getElementById('exit-tbody').innerHTML = rows.map(r=>`<tr>
+    <td>${r.reason}</td>
+    <td>${r.count}</td>
+    <td class="ts">${total ? (100*r.count/total).toFixed(1)+'%' : '—'}</td>
+  </tr>`).join('');
+}
+
+function renderEquity(curve){
+  const svg = document.getElementById('equity-svg');
+  if(!curve || curve.length < 2){ svg.innerHTML = '<text x="10" y="20" fill="#6e7681" font-size="12">No data yet</text>'; return; }
+
+  const W = svg.parentElement.clientWidth - 20 || 800;
+  const H = 180;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const vals = curve.map(p => p.cumulative);
+  const minV = Math.min(0, ...vals);
+  const maxV = Math.max(0, ...vals);
+  const range = maxV - minV || 1;
+
+  const sx = i => (i / (curve.length - 1)) * (W - 10) + 5;
+  const sy = v => H - 10 - ((v - minV) / range) * (H - 20);
+
+  // zero line
+  const z = sy(0);
+  svg.innerHTML = `<line x1="0" y1="${z}" x2="${W}" y2="${z}" stroke="#30363d" stroke-dasharray="4,4"/>`;
+
+  // area fill
+  const pts = curve.map((p,i) => `${sx(i)},${sy(p.cumulative)}`).join(' ');
+  const area = `M ${sx(0)},${sy(0)} ` + curve.map((p,i) => `L${sx(i)},${sy(p.cumulative)}`).join(' ') + ` L${sx(curve.length-1)},${z} L${sx(0)},${z} Z`;
+  svg.innerHTML += `<path d="${area}" fill="rgba(63,185,80,0.08)"/>`;
+
+  // line
+  const pathD = curve.map((p,i) => (i===0?'M':'L')+`${sx(i)},${sy(p.cumulative)}`).join(' ');
+  const lastPnl = vals[vals.length-1];
+  const lineColor = lastPnl >= 0 ? '#3fb950' : '#f85149';
+  svg.innerHTML += `<path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>`;
+
+  // labels
+  svg.innerHTML += `<text x="5" y="14" fill="#8b949e" font-size="10">${maxV.toFixed(2)}</text>`;
+  svg.innerHTML += `<text x="5" y="${H-2}" fill="#8b949e" font-size="10">${minV.toFixed(2)}</text>`;
+  svg.innerHTML += `<text x="${W-5}" y="${sy(lastPnl)-4}" fill="${lineColor}" font-size="11" text-anchor="end">${(lastPnl>=0?'+':'')+lastPnl.toFixed(2)}</text>`;
+}
+
+let _filteredTrades = [];
+function filterTrades(){
+  const d = document.getElementById('f-dir').value;
+  const r = document.getElementById('f-reason').value;
+  _filteredTrades = _data.trades.filter(t =>
+    (!d || t.direction === d) && (!r || t.exit_reason === r)
+  );
+  _filteredTrades.sort((a,b)=>{
+    let av = a[_sortKey], bv = b[_sortKey];
+    if(av==null) av = _sortAsc ? Infinity : -Infinity;
+    if(bv==null) bv = _sortAsc ? Infinity : -Infinity;
+    return _sortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+  });
+  document.getElementById('trade-tbody').innerHTML = _filteredTrades.slice(0,1000).map(r=>`<tr>
+    <td>${r.id}</td>
+    <td style="color:#8b949e;font-size:11px">${r.source||'—'}</td>
+    <td>${r.symbol}</td>
+    <td><span class="${r.direction}">${r.direction}</span></td>
+    <td><span class="${r.entry_type}">${r.entry_type}</span></td>
+    <td>${r.entry_price}</td><td>${r.tp_price}</td><td>${r.sl_price}</td><td>${r.bracket_size}</td>
+    <td>${r.fill_price!=null?r.fill_price:''}</td>
+    <td>${r.exit_price!=null?r.exit_price:''}</td>
+    <td class="ts">${r.exit_reason||''}</td>
+    <td class="${pnlClass(r.pnl_points)}">${pnlFmt(r.pnl_points)}</td>
+    <td class="ts">${r.fill_time?r.fill_time.slice(0,16):''}</td>
+    <td class="ts">${r.exit_time?r.exit_time.slice(0,16):''}</td>
+  </tr>`).join('');
+  document.getElementById('trade-count').textContent = _filteredTrades.length + ' trades';
+}
+
+function sortTrades(key){
+  if(_sortKey === key) _sortAsc = !_sortAsc;
+  else { _sortKey = key; _sortAsc = false; }
+  filterTrades();
+}
+
+function load(){
+  const src = document.getElementById('f-source').value;
+  const sym = document.getElementById('f-symbol').value;
+  let url = '/api/report?limit=5000';
+  if(src) url += '&source='+encodeURIComponent(src);
+  if(sym) url += '&symbol='+encodeURIComponent(sym);
+
+  fetch(url).then(r=>r.json()).then(d=>{
+    _data = d;
+    renderSummary(d.summary);
+    renderBySource(d.by_source);
+    renderByExit(d.by_exit, d.summary.total_trades);
+    renderEquity(d.equity_curve);
+    filterTrades();
+    document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+  });
+}
+
+load();
+setInterval(load, 15000);
+</script>
+{% endblock %}

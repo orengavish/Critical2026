@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Galao{% endblock %}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:monospace;background:#0d1117;color:#c9d1d9;font-size:13px}
+    a{color:#58a6ff;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* ── Nav ── */
+    #topbar{background:#161b22;border-bottom:1px solid #30363d;
+            display:flex;align-items:center;padding:0 16px;height:44px;gap:0}
+    #topbar .logo{color:#58a6ff;font-weight:bold;font-size:15px;margin-right:24px}
+    #topbar a{color:#8b949e;padding:0 10px;height:44px;display:flex;align-items:center;
+              border-bottom:2px solid transparent;font-size:12px}
+    #topbar a:hover{color:#c9d1d9;text-decoration:none}
+    #topbar a.active{color:#f0f6fc;border-bottom-color:#58a6ff}
+    #price-widget{margin-left:auto;display:flex;align-items:center;gap:10px}
+    #price-val{font-size:18px;font-weight:bold;color:#3fb950}
+    #price-val.stale{color:#8b949e}
+    #price-age{font-size:11px;color:#8b949e}
+    #session-badge{padding:2px 8px;border-radius:10px;font-size:11px;background:#21262d}
+    #session-badge.RUNNING{background:#1a4731;color:#3fb950}
+    #session-badge.SHUTDOWN{background:#4a1a1a;color:#f85149}
+
+    /* ── Layout ── */
+    #main{padding:16px 20px}
+    h2{color:#79c0ff;margin:16px 0 8px 0;font-size:14px}
+    h3{color:#8b949e;font-size:12px;margin:10px 0 6px 0}
+
+    /* ── Tables ── */
+    table{border-collapse:collapse;width:100%}
+    th{background:#161b22;color:#8b949e;padding:5px 8px;text-align:left;
+       font-size:11px;border-bottom:1px solid #30363d;cursor:pointer}
+    th:hover{color:#c9d1d9}
+    td{padding:4px 8px;border-bottom:1px solid #161b22;font-size:12px}
+    tr:hover td{background:#161b22}
+
+    /* ── Status badges ── */
+    .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:bold}
+    .PENDING{background:#2d2a0f;color:#d29922}
+    .SUBMITTING{background:#1a2940;color:#79c0ff}
+    .SUBMITTED{background:#0d2a4a;color:#58a6ff}
+    .FILLED{background:#0f2d1a;color:#3fb950}
+    .EXITING{background:#2d1a0f;color:#e3b341}
+    .CLOSED{background:#1c1c1c;color:#6e7681}
+    .CANCELLED{background:#1c1c1c;color:#6e7681}
+    .ERROR{background:#4a1a1a;color:#f85149}
+    .RECONCILE_REQUIRED{background:#4a1a1a;color:#f85149}
+    .PASS{color:#3fb950}
+    .FAIL{color:#f85149}
+    .SKIP{color:#d29922}
+
+    /* ── Cards ── */
+    .card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;margin-bottom:12px}
+    .card-row{display:flex;gap:12px;flex-wrap:wrap}
+    .stat-card{background:#161b22;border:1px solid #30363d;border-radius:6px;
+               padding:10px 16px;min-width:120px;text-align:center}
+    .stat-card .val{font-size:22px;font-weight:bold;color:#58a6ff}
+    .stat-card .lbl{font-size:11px;color:#8b949e;margin-top:2px}
+
+    /* ── Price ladder ── */
+    .ladder{font-family:monospace;line-height:1.6}
+    .ladder-row{display:flex;align-items:center;gap:8px;padding:2px 0}
+    .ladder-row.current{background:#1a2940;border-radius:4px;padding:2px 4px}
+    .ladder-price{width:70px;text-align:right;color:#c9d1d9}
+    .ladder-dist{width:55px;text-align:right;font-size:11px}
+    .ladder-dist.above{color:#f85149}
+    .ladder-dist.below{color:#3fb950}
+    .ladder-type{width:70px;font-size:11px}
+    .SUPPORT .ladder-type{color:#3fb950}
+    .RESISTANCE .ladder-type{color:#f85149}
+    .ladder-cmds{flex:1;display:flex;gap:4px;flex-wrap:wrap}
+
+    /* ── Filters ── */
+    .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+    .filters select,.filters input{background:#161b22;color:#c9d1d9;
+      border:1px solid #30363d;padding:3px 7px;border-radius:4px;font-family:monospace;font-size:12px}
+    .filters button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;
+      padding:3px 10px;border-radius:4px;cursor:pointer;font-family:monospace;font-size:12px}
+    .filters button:hover{background:#30363d}
+
+    /* ── IB Trace ── */
+    #trace-box{background:#0d1117;border:1px solid #30363d;border-radius:4px;
+               padding:10px;height:500px;overflow-y:auto;font-size:11px;line-height:1.5}
+    .trace-ERROR,.trace-CRITICAL{color:#f85149}
+    .trace-WARNING{color:#d29922}
+    .trace-INFO{color:#c9d1d9}
+    .trace-DEBUG{color:#6e7681}
+
+    /* ── BUY/SELL colors ── */
+    .BUY{color:#3fb950}
+    .SELL{color:#f85149}
+    .LMT{color:#79c0ff}
+    .STP{color:#e3b341}
+
+    /* ── Misc ── */
+    .ts{color:#6e7681;font-size:11px}
+    .pnl-pos{color:#3fb950}
+    .pnl-neg{color:#f85149}
+    #refresh-indicator{font-size:10px;color:#6e7681;margin-left:8px}
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <span class="logo">GALAO</span>
+  <a href="/"           class="{% if active=='dashboard'    %}active{% endif %}">Dashboard</a>
+  <a href="/ib-trace"   class="{% if active=='ib_trace'     %}active{% endif %}">IB Trace</a>
+  <a href="/logs"       class="{% if active=='logs'         %}active{% endif %}">Logs</a>
+  <a href="/preflight"  class="{% if active=='preflight'    %}active{% endif %}">Pre-flight</a>
+  <a href="/release-notes" class="{% if active=='release_notes' %}active{% endif %}">Release Notes</a>
+  <a href="/db"           class="{% if active=='db_view'       %}active{% endif %}">DB View</a>
+  <a href="/lines"        class="{% if active=='lines'         %}active{% endif %}">Lines</a>
+  <a href="/report"       class="{% if active=='report'        %}active{% endif %}">Report</a>
+  <a href="/fetch-status" class="{% if active=='fetch_status'   %}active{% endif %}">Fetch</a>
+  <a href="/traceback"    class="{% if active=='traceback'      %}active{% endif %}">Traceback</a>
+
+  <div id="price-widget">
+    <div>
+      <div id="price-val">--</div>
+      <div id="price-age">connecting...</div>
+    </div>
+    <span id="session-badge">--</span>
+  </div>
+</div>
+
+<div id="main">
+{% block content %}{% endblock %}
+</div>
+
+<script>
+// ── Price widget (polls every 3s) ────────────────────────────────────────────
+function updatePrice(){
+  fetch('/api/price').then(r=>r.json()).then(d=>{
+    const el = document.getElementById('price-val');
+    const age = document.getElementById('price-age');
+    if(d.price){
+      el.textContent = d.price.toFixed(2);
+      el.className = d.stale ? 'stale' : '';
+      age.textContent = d.age_s ? d.age_s+'s ago' : 'live';
+    }
+  }).catch(()=>{});
+
+  fetch('/api/session-state').then(r=>r.json()).then(d=>{
+    const b = document.getElementById('session-badge');
+    b.textContent = d.session || '--';
+    b.className = d.session || '';
+  }).catch(()=>{});
+}
+updatePrice();
+setInterval(updatePrice, 3000);
+
+// ── Generic auto-refresh helper ──────────────────────────────────────────────
+function autoRefreshTable(url, tbodyId, buildRow, interval){
+  function refresh(){
+    fetch(url).then(r=>r.json()).then(rows=>{
+      const tb = document.getElementById(tbodyId);
+      if(!tb) return;
+      const ind = document.getElementById('refresh-indicator');
+      if(ind) ind.textContent = new Date().toTimeString().slice(0,8);
+      tb.innerHTML = rows.map(buildRow).join('');
+    }).catch(()=>{});
+  }
+  refresh();
+  setInterval(refresh, interval);
+}
+
+function badge(s){ return `<span class="badge ${s}">${s}</span>`; }
+function dir(d)  { return `<span class="${d}">${d}</span>`; }
+function et(t)   { return `<span class="${t}">${t}</span>`; }
+function fmt(v)  { return v != null ? v : ''; }
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

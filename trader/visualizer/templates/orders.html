@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}All Orders — Galao{% endblock %}
+{% block content %}
+<h2>All Orders <span id="refresh-indicator"></span></h2>
+<div class="filters">
+  <select id="f-status" onchange="applyFilters()">
+    <option value="">All Status</option>
+    <option value="PENDING">PENDING</option>
+    <option value="SUBMITTING">SUBMITTING</option>
+    <option value="SUBMITTED">SUBMITTED</option>
+    <option value="FILLED">FILLED</option>
+    <option value="EXITING">EXITING</option>
+    <option value="CLOSED">CLOSED</option>
+    <option value="CANCELLED">CANCELLED</option>
+    <option value="ERROR">ERROR</option>
+    <option value="RECONCILE_REQUIRED">RECONCILE_REQUIRED</option>
+  </select>
+  <select id="f-dir" onchange="applyFilters()">
+    <option value="">BUY + SELL</option>
+    <option value="BUY">BUY only</option>
+    <option value="SELL">SELL only</option>
+  </select>
+  <select id="f-type" onchange="applyFilters()">
+    <option value="">LMT + STP</option>
+    <option value="LMT">LMT only</option>
+    <option value="STP">STP only</option>
+  </select>
+  <input id="f-line" type="number" placeholder="Line price" onchange="applyFilters()" style="width:110px">
+  <button onclick="clearFilters()">Clear</button>
+  <span id="row-count" style="color:#8b949e;font-size:11px;margin-left:4px"></span>
+</div>
+<div style="overflow-x:auto">
+<table>
+  <thead><tr>
+    <th onclick="sortTable(0)">ID ▾</th>
+    <th>Created</th><th>Symbol</th><th>Dir</th><th>Type</th>
+    <th>Line</th><th>Str</th>
+    <th>Entry</th><th>TP</th><th>SL</th><th>Bkt</th>
+    <th>Status</th><th>IB ID</th>
+    <th>Fill</th><th>Fill Time</th>
+    <th>Exit</th><th>Exit Time</th><th>Reason</th><th>P&L</th>
+    <th>Updated</th>
+  </tr></thead>
+  <tbody id="orders-tbody"></tbody>
+</table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _allRows = [];
+function buildRow(r){
+  return `<tr>
+    <td>${r.id}</td>
+    <td class="ts">${r.created_at ? r.created_at.slice(0,16) : ''}</td>
+    <td>${r.symbol}</td>
+    <td>${dir(r.direction)}</td>
+    <td>${et(r.entry_type)}</td>
+    <td>${r.line_price}</td>
+    <td>${r.line_strength}</td>
+    <td>${r.entry_price}</td>
+    <td>${r.tp_price}</td>
+    <td>${r.sl_price}</td>
+    <td>${r.bracket_size}</td>
+    <td>${badge(r.status)}</td>
+    <td class="ts">${fmt(r.ib_order_id)}</td>
+    <td>${fmt(r.fill_price)}</td>
+    <td class="ts">${r.fill_time ? r.fill_time.slice(11,19) : ''}</td>
+    <td>${fmt(r.exit_price)}</td>
+    <td class="ts">${r.exit_time ? r.exit_time.slice(11,19) : ''}</td>
+    <td class="ts">${fmt(r.exit_reason)}</td>
+    <td class="${r.pnl_points != null ? (r.pnl_points>=0?'pnl-pos':'pnl-neg') : ''}">${r.pnl_points != null ? (r.pnl_points>=0?'+':'')+r.pnl_points.toFixed(2) : ''}</td>
+    <td class="ts">${r.updated_at ? r.updated_at.slice(11,19) : ''}</td>
+  </tr>`;
+}
+function applyFilters(){
+  const st  = document.getElementById('f-status').value;
+  const d   = document.getElementById('f-dir').value;
+  const t   = document.getElementById('f-type').value;
+  const lp  = document.getElementById('f-line').value;
+  let rows = _allRows;
+  if(st)  rows = rows.filter(r => r.status === st);
+  if(d)   rows = rows.filter(r => r.direction === d);
+  if(t)   rows = rows.filter(r => r.entry_type === t);
+  if(lp)  rows = rows.filter(r => Math.abs(r.line_price - parseFloat(lp)) < 0.1);
+  document.getElementById('orders-tbody').innerHTML = rows.map(buildRow).join('');
+  document.getElementById('row-count').textContent = rows.length + ' rows';
+}
+function clearFilters(){
+  ['f-status','f-dir','f-type'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('f-line').value='';
+  applyFilters();
+}
+function refresh(){
+  fetch('/api/commands?limit=1000')
+    .then(r=>r.json()).then(rows=>{
+      _allRows = rows.sort((a,b) => b.id - a.id);
+      applyFilters();
+      document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+    });
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+{% endblock %}

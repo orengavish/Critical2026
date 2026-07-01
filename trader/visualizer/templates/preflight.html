@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Pre-flight — Galao{% endblock %}
+{% block content %}
+<h2>Pre-flight Results <span id="refresh-indicator"></span></h2>
+<p style="color:#8b949e;font-size:12px">Run <code>python preflight.py</code> to update.</p>
+<div style="overflow-x:auto">
+<table style="max-width:700px">
+  <thead><tr>
+    <th>Check</th><th>Status</th><th>Time</th><th>Detail</th>
+  </tr></thead>
+  <tbody id="pf-tbody"></tbody>
+</table>
+</div>
+<div id="pf-empty" style="color:#6e7681;font-size:12px;margin-top:8px"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refresh(){
+  fetch('/api/preflight').then(r=>r.json()).then(data=>{
+    const keys = Object.keys(data).sort();
+    const tbody = document.getElementById('pf-tbody');
+    const empty = document.getElementById('pf-empty');
+    if(keys.length === 0){
+      tbody.innerHTML = '';
+      empty.textContent = 'No pre-flight results yet.';
+      return;
+    }
+    empty.textContent = '';
+    tbody.innerHTML = keys.map(k => {
+      const v = data[k];
+      const name = k.replace('preflight_','').replace(/_/g,' ');
+      return `<tr>
+        <td>${name}</td>
+        <td><span class="badge ${v.status}">${v.status}</span></td>
+        <td class="ts">${v.time ? v.time.slice(0,19) : ''}</td>
+        <td style="font-size:11px;color:#8b949e">${v.detail || ''}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+  });
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+{% endblock %}

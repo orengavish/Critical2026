@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/Projects/galgo2026/.claude/hooks/selftest_on_edit.py",
+            "timeout": 35,
+            "statusMessage": "Running --self-test..."
+          }
+        ]
+      }
+    ]
+  }
+}

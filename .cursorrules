@@ -1,0 +1,105 @@
+# Galao System — Cursor Rules
+# These rules guide AI suggestions throughout this project.
+
+## Project Purpose
+Galao is an intraday futures trading LEARNING PLATFORM.
+Goal: collect structured trade data to A/B test bracket sizes and line strengths.
+P&L optimization comes later. Data correctness is the priority now.
+
+## Hard Rules (never violate)
+- Trading ALWAYS uses the PAPER port (4002). Never submit orders to the LIVE port.
+- LIVE port (4001) is for market data and historical data ONLY.
+- Components communicate via SQLite DB only — no direct inter-process calls or imports between Decider/Broker/Fetcher.
+- Every Python script must implement a `--self-test` flag.
+- All changes must be noted in docs/release_notes.md.
+- Brackets are always symmetric. Any positive size is allowed.
+- Config values are never hardcoded — all tunables live in config.yaml.
+- Entry orders are LMT (Limit) — bounce strategy. Do NOT use STP for entry.
+
+## Architecture
+- decider.py       — generates commands at day open, handles replenishment, triggers shutdown
+- broker.py        — executes IB orders, updates DB with status (dumb executor only)
+- fetcher.py       — downloads historical CSV data via LIVE port only
+- visualizer/      — browser dashboard: DB viewer, live orders, prices, P&L, connection status
+- analyzer.py      — A/B test engine [LATER — do not build yet]
+- lib/db.py        — ALL DB access goes through here
+- lib/ib_client.py — ib_insync connection wrapper with client ID pool
+- lib/order_builder.py — OCO bracket order construction (LMT entry + LMT TP + STP SL)
+- lib/config_loader.py — loads config.yaml
+
+## IB Connections
+- LIVE:  host=127.0.0.1, port=4001, client_ids=[101,102,103]
+- PAPER: host=127.0.0.1, port=4002, client_ids=[201,301,401]
+- Connect by trying each client ID in pool until one succeeds
+- Always disconnect cleanly (atexit handler)
+
+## Critical Lines
+- File: data/critical_lines/levels_daily_YYYYMMDD.txt
+- Format: SYMBOL, PRICE, STRENGTH  (e.g. MES, 6250, 3)
+- Strength: 1-3 (1=weak, 3=strong) — recorded for A/B testing, does not affect order logic
+- Per line: LMT BUY + LMT SELL, each with N bracket sizes from config
+
+## Order Logic — Toggle Rule
+Entry order type depends on current price vs line price. Evaluated at command generation AND replenishment.
+
+| Current price vs line | BUY entry | SELL entry |
+|-----------------------|-----------|------------|
+| Price ABOVE line      | LMT BUY   | STP SELL   |
+| Price BELOW line      | STP BUY   | LMT SELL   |
+
+- All prices rounded to nearest 0.25 (MES tick size) at Decider, before writing to DB
+- Max 1 contract per order (learning phase)
+- Replenishment re-evaluates toggle based on current price
+
+## Position Management
+- Stagnation kill-switch: position open > stagnation_seconds (60) AND price moved < stagnation_min_move_points (0.5) → market exit, log STAGNATION
+- SL cool-down: after SL hit, disarm line for sl_cooldown_seconds (30) before replenishing
+- All three values are configurable in config.yaml under position:
+
+## DB
+- File: data/galao.db
+- WAL mode on every connection, busy_timeout=5000ms
+- Each process opens its own connection — never share across threads/processes
+- Every command record must store: bracket_size, line_strength, line_price, symbol — for A/B testing
+
+## A/B Testing
+- Two test variables: bracket_size (from config) and line_strength (from critical lines file)
+- No runtime decisions based on these — record only
+- Analyzer (future) will process DB data
+
+## Coding Workflow (mandatory before declaring complete)
+1. Copy current file to versions/{filename}.{YYYYMMDD_HHMM} before editing
+2. Make changes
+3. Run --self-test → must pass
+4. Write release notes entry to DB (program, version, change_type, description)
+5. Only then: announce complete
+
+## Logging
+- Use lib/logger.py for all logging
+- All levels: DEBUG / INFO / WARNING / ERROR / CRITICAL
+- Log format: {timestamp_utc} | {level} | {component} | {message}
+- Every IB interaction: minimum INFO
+- Log files: logs/{component}.log
+
+## Error Handling
+- IB disconnect: retry 5x over 5 minutes (60s between), then abort
+- DB write fail: log to file, abort
+- Abort = trigger shutdown if session active, then exit
+
+## Code Structure
+- Max 500 lines per file — split if exceeded
+- lib/ is flat, one concern per file
+- versions/ folder: never edit files there
+
+## Startup
+- preflight.py runs before any session: LIVE port, PAPER port, price fetch, DB test
+- Any failure = hard abort
+
+## What NOT to suggest
+- Do not use STP orders for entry (that's V1 breakout strategy — wrong for Galao)
+- Do not send orders to the LIVE port
+- Do not mock the IB connection in production code paths
+- Do not share SQLite connections across threads/processes
+- Do not build the Analyzer yet
+- Do not add features beyond what is asked
+- Do not hardcode port numbers, client IDs, or bracket sizes

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Release Notes — Galao{% endblock %}
+{% block content %}
+<h2>Release Notes</h2>
+<div class="filters">
+  <input id="f-program" type="text" placeholder="Filter by program..." oninput="applyFilters()" style="width:180px">
+  <button onclick="document.getElementById('f-program').value='';applyFilters()">Clear</button>
+  <span id="note-count" style="color:#8b949e;font-size:11px;margin-left:4px"></span>
+</div>
+<div id="notes-container"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _allNotes = [];
+
+function applyFilters(){
+  const q = document.getElementById('f-program').value.toLowerCase();
+  const notes = q ? _allNotes.filter(n => n.program.toLowerCase().includes(q)) : _allNotes;
+  document.getElementById('note-count').textContent = notes.length + ' notes';
+  document.getElementById('notes-container').innerHTML = notes.map(n => {
+    const details = n.details
+      ? `<pre style="margin-top:8px;background:#0d1117;padding:8px;border-radius:4px;font-size:11px;white-space:pre-wrap">${escHtml(n.details)}</pre>`
+      : '';
+    return `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+        <span style="color:#79c0ff;font-weight:bold">${escHtml(n.program)}</span>
+        <span style="color:#58a6ff;font-size:12px">v${escHtml(n.version)}</span>
+        <span class="ts">${n.created_at ? n.created_at.slice(0,16) : ''}</span>
+      </div>
+      <div>${escHtml(n.summary)}</div>
+      ${details}
+    </div>`;
+  }).join('') || '<div style="color:#6e7681;font-size:12px">No release notes yet.</div>';
+}
+
+function escHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function refresh(){
+  fetch('/api/release-notes').then(r=>r.json()).then(rows=>{
+    _allNotes = rows;
+    applyFilters();
+  });
+}
+refresh();
+</script>
+{% endblock %}

@@ -1,0 +1,81 @@
+# Galao System Configuration
+# All tunables live here. Never hardcode values in Python files.
+
+ib:
+  gateway_log_dir: ""   # optional: IB Gateway log dir, e.g. C:\Jts\username
+  live_host: 127.0.0.1
+  live_port: 4002  # single paper gateway — handles both data and orders
+  live_client_ids: [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120]
+  paper_host: 127.0.0.1
+  paper_port: 4002
+  paper_client_ids: [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+  reconnect_interval_seconds: 30
+  connection_timeout: 5
+  fetcher_client_ids: [801, 802, 803]
+  ibc_startgateway_bat: "C:\\IBC\\StartGateway.bat"
+  ibc_mode: paper
+
+symbols:
+  - MES              # trading symbols only — used by decider, broker, position_manager
+
+fetcher:
+  auto_fetch_enabled: true
+  fetch_bid_ask: true
+  fetch_on_startup: true        # fetch prev day if missing when runner starts
+  symbols_override:             # data symbols — independent of trading symbols
+    - MES
+    - MNQ
+    - MYM
+    - M2K
+  trigger_time_ct: "17:30"      # HH:MM CT — trigger after market close
+
+session:
+  open_offset_minutes: 30
+  shutdown_offset_minutes: 60
+  timezone: America/Chicago
+
+orders:
+  active_brackets: [2, 4]
+  quantity: 1
+  tick_size: 0.25
+
+position:
+  stagnation_seconds: 300
+  stagnation_min_move_points: 0.5
+  sl_cooldown_seconds: 30
+
+shutdown:
+  exit_patience_seconds: 30
+  panic_threshold_minutes: 10
+
+decider:
+  replenishment_poll_seconds: 10
+
+broker:
+  command_poll_seconds: 5
+  ib_poll_seconds: 30
+
+visualizer:
+  host: 127.0.0.1
+  port: 5001
+
+paths:
+  db: data/galao.db
+  test_db: data/test_galao.db
+  backtest_db: data/backtest.db
+  critical_lines: data/critical_lines
+  history: data/history
+  logs: logs
+  versions: versions
+
+generator:
+  n_timestamps: 10
+  bracket_sizes: [2, 4, 8, 16]
+  entry_offset_min: 0.5
+  entry_offset_max: 2.0
+
+grader:
+  match_ticks: 1
+
+backtest:
+  symbol: MES

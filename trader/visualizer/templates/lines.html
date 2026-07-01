@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}Lines Input — Galao{% endblock %}
+
+{% block content %}
+<h2>Critical Lines Input</h2>
+
+<div class="card" style="max-width:760px">
+  <div class="filters" style="margin-bottom:12px">
+    <label style="color:#8b949e;font-size:12px">Symbol:</label>
+    <select id="sym-sel">
+      {% for s in symbols %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <label style="color:#8b949e;font-size:12px">Date:</label>
+    <input type="date" id="date-sel">
+    <button id="load-btn">Load existing</button>
+  </div>
+
+  <div style="margin-bottom:8px;color:#8b949e;font-size:11px">
+    Paste lines below. Supported format:<br>
+    <span style="color:#6e7681">
+      קווי תמיכה: 6765.25?, 6672.50? - 6652.75!, 6598.75!<br>
+      קווי התנגדות: 6845.75?, 6903.75! - 6912.50, 6953.25?
+    </span><br>
+    <span style="color:#6e7681">no suffix</span> = strong (1) &nbsp;
+    <span style="color:#d29922">?</span> = medium (2) &nbsp;
+    <span style="color:#f85149">!</span> = weak (3) &nbsp;&nbsp;
+    Use <code>A - B</code> for a zone (both prices added separately).
+  </div>
+
+  <textarea id="lines-txt" spellcheck="false"
+    style="width:100%;height:120px;background:#0d1117;color:#c9d1d9;
+           border:1px solid #30363d;border-radius:4px;padding:8px;
+           font-family:monospace;font-size:13px;resize:vertical"></textarea>
+
+  <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+    <button id="parse-btn">Parse</button>
+    <button id="save-btn" style="background:#1a4731;color:#3fb950;border-color:#2ea043" disabled>
+      Save to DB
+    </button>
+    <span id="msg" style="font-size:12px;color:#8b949e"></span>
+  </div>
+</div>
+
+<!-- Preview -->
+<div id="preview-wrap" style="display:none;max-width:760px">
+  <h2>Preview — <span id="preview-count"></span> lines
+    (<span id="preview-sym"></span> <span id="preview-date"></span>)</h2>
+
+  <div style="display:flex;gap:16px">
+    <!-- Support -->
+    <div style="flex:1">
+      <h3>Support</h3>
+      <table>
+        <thead><tr><th>Price</th><th>Strength</th></tr></thead>
+        <tbody id="sup-body"></tbody>
+      </table>
+    </div>
+    <!-- Resistance -->
+    <div style="flex:1">
+      <h3>Resistance</h3>
+      <table>
+        <thead><tr><th>Price</th><th>Strength</th></tr></thead>
+        <tbody id="res-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Reset -->
+<div class="card" style="max-width:760px;margin-top:20px;border-color:#4a1a1a">
+  <h2 style="color:#f85149;margin-top:0">Reset DB &amp; IB</h2>
+  <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
+    Wipes operational DB tables (commands, positions, ib_events, system_state) and/or
+    sends <code>reqGlobalCancel</code> to IB. Critical lines and release notes are preserved.
+  </div>
+  <div style="display:flex;gap:16px;margin-bottom:10px;align-items:center">
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="chk-ib" checked> Cancel IB orders (reqGlobalCancel)
+    </label>
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="chk-db" checked> Wipe DB tables
+    </label>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="reset-btn"
+      style="background:#4a1a1a;color:#f85149;border:1px solid #f85149;
+             padding:5px 16px;border-radius:4px;cursor:pointer;
+             font-family:monospace;font-size:12px;font-weight:bold">
+      Reset
+    </button>
+    <span id="reset-msg" style="font-size:12px;color:#8b949e"></span>
+  </div>
+  <div id="reset-detail" style="margin-top:10px;font-size:11px;display:none"></div>
+</div>
+
+<!-- Current DB lines (after load) -->
+<div id="db-wrap" style="display:none;max-width:760px;margin-top:16px">
+  <h2>Current DB lines — <span id="db-sym"></span> <span id="db-date"></span></h2>
+  <div style="display:flex;gap:16px">
+    <div style="flex:1">
+      <h3>Support</h3>
+      <table>
+        <thead><tr><th>Price</th><th>Strength</th><th>Armed</th></tr></thead>
+        <tbody id="db-sup-body"></tbody>
+      </table>
+    </div>
+    <div style="flex:1">
+      <h3>Resistance</h3>
+      <table>
+        <thead><tr><th>Price</th><th>Strength</th><th>Armed</th></tr></thead>
+        <tbody id="db-res-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const STRENGTH = {1:'<span class="FILLED">strong (!)</span>',
+                  2:'<span class="PENDING">medium (?)</span>',
+                  3:'<span style="color:#6e7681">weak</span>'};
+
+function todayLocal(){
+  const d = new Date();
+  return d.getFullYear()+'-'
+    +String(d.getMonth()+1).padStart(2,'0')+'-'
+    +String(d.getDate()).padStart(2,'0');
+}
+
+document.getElementById('date-sel').value = todayLocal();
+
+// ── Parsed preview state ─────────────────────────────────────────────────────
+let _parsed = [];
+
+function renderPreview(lines, sym, date){
+  _parsed = lines;
+  const sup = lines.filter(l=>l.line_type==='SUPPORT').sort((a,b)=>b.price-a.price);
+  const res = lines.filter(l=>l.line_type==='RESISTANCE').sort((a,b)=>b.price-a.price);
+
+  document.getElementById('preview-count').textContent = lines.length;
+  document.getElementById('preview-sym').textContent   = sym;
+  document.getElementById('preview-date').textContent  = date;
+
+  document.getElementById('sup-body').innerHTML = sup.map(l=>
+    `<tr><td class="SUPPORT">${l.price.toFixed(2)}</td><td>${STRENGTH[l.strength]||l.strength}</td></tr>`
+  ).join('');
+  document.getElementById('res-body').innerHTML = res.map(l=>
+    `<tr><td class="SELL">${l.price.toFixed(2)}</td><td>${STRENGTH[l.strength]||l.strength}</td></tr>`
+  ).join('');
+
+  document.getElementById('preview-wrap').style.display = '';
+  document.getElementById('save-btn').disabled = lines.length === 0;
+  document.getElementById('msg').textContent = '';
+}
+
+function renderDb(rows, sym, date){
+  const sup = rows.filter(r=>r.line_type==='SUPPORT').sort((a,b)=>b.price-a.price);
+  const res = rows.filter(r=>r.line_type==='RESISTANCE').sort((a,b)=>b.price-a.price);
+
+  document.getElementById('db-sym').textContent  = sym;
+  document.getElementById('db-date').textContent = date;
+
+  function row(r){
+    const armed = r.armed ? '<span class="FILLED">yes</span>' : '<span style="color:#6e7681">no</span>';
+    const pcls  = r.line_type==='SUPPORT' ? 'SUPPORT' : 'SELL';
+    return `<tr><td class="${pcls}">${r.price.toFixed(2)}</td><td>${STRENGTH[r.strength]||r.strength}</td><td>${armed}</td></tr>`;
+  }
+  document.getElementById('db-sup-body').innerHTML = sup.map(row).join('');
+  document.getElementById('db-res-body').innerHTML = res.map(row).join('');
+  document.getElementById('db-wrap').style.display = rows.length ? '' : 'none';
+}
+
+// ── Parse (client-side preview, no network) ─────────────────────────────────
+// We let the server do canonical parsing via POST; for instant feedback we
+// just call POST /api/lines with ?preview=1 — but since that would save, we
+// actually replicate the tiny parser in JS for the preview step, then confirm.
+
+function jsParseLines(text){
+  const lines = [];
+  let supText = '', resText = '';
+  for(const raw of text.split('\n')){
+    const t = raw.trim();
+    if(!t) continue;
+    const lo = t.toLowerCase();
+    let idx;
+    if(t.includes('תמיכה') || lo.includes('support')){
+      idx = t.indexOf(':');
+      if(idx>=0) supText = t.slice(idx+1).trim();
+    } else if(t.includes('התנגדות') || lo.includes('resistance')){
+      idx = t.indexOf(':');
+      if(idx>=0) resText = t.slice(idx+1).trim();
+    }
+  }
+
+  function parseSection(raw, lineType){
+    const items = [];
+    for(const token of raw.split(',')){
+      for(const sub of token.split(' - ')){
+        const s = sub.trim();
+        if(!s) continue;
+        let strength, priceStr;
+        if(s.endsWith('!')){ strength=3; priceStr=s.slice(0,-1).trim(); }
+        else if(s.endsWith('?')){ strength=2; priceStr=s.slice(0,-1).trim(); }
+        else { strength=1; priceStr=s.trim(); }
+        const price = parseFloat(priceStr);
+        if(!isNaN(price)) items.push({line_type:lineType, price, strength});
+      }
+    }
+    return items;
+  }
+
+  if(supText) lines.push(...parseSection(supText,'SUPPORT'));
+  if(resText) lines.push(...parseSection(resText,'RESISTANCE'));
+  return lines;
+}
+
+document.getElementById('parse-btn').addEventListener('click', ()=>{
+  const text = document.getElementById('lines-txt').value.trim();
+  const sym  = document.getElementById('sym-sel').value;
+  const date = document.getElementById('date-sel').value;
+  const msg  = document.getElementById('msg');
+
+  if(!text){ msg.textContent='Paste some text first.'; msg.style.color='#f85149'; return; }
+
+  const lines = jsParseLines(text);
+  if(!lines.length){ msg.textContent='No valid lines found.'; msg.style.color='#f85149'; return; }
+  if(lines.length>20){ msg.textContent=`Too many lines (${lines.length}), max 20.`; msg.style.color='#f85149'; return; }
+
+  renderPreview(lines, sym, date);
+});
+
+// ── Save ─────────────────────────────────────────────────────────────────────
+document.getElementById('save-btn').addEventListener('click', ()=>{
+  const text = document.getElementById('lines-txt').value.trim();
+  const sym  = document.getElementById('sym-sel').value;
+  const date = document.getElementById('date-sel').value;
+  const msg  = document.getElementById('msg');
+  const btn  = document.getElementById('save-btn');
+
+  btn.disabled = true;
+  msg.textContent = 'Saving...';
+  msg.style.color = '#8b949e';
+
+  fetch('/api/lines', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text, date, symbol:sym})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.error){
+      msg.textContent = '✗ '+d.error;
+      msg.style.color = '#f85149';
+      btn.disabled = false;
+    } else {
+      msg.textContent = `✓ Saved ${d.count} lines to DB`;
+      msg.style.color = '#3fb950';
+      loadDb(sym, date);   // refresh DB view
+    }
+  })
+  .catch(e=>{
+    msg.textContent = '✗ Network error: '+e;
+    msg.style.color = '#f85149';
+    btn.disabled = false;
+  });
+});
+
+// ── Load existing DB lines ────────────────────────────────────────────────────
+function loadDb(sym, date){
+  fetch(`/api/lines?symbol=${encodeURIComponent(sym)}&date=${encodeURIComponent(date)}`)
+    .then(r=>r.json())
+    .then(rows=>renderDb(rows, sym, date))
+    .catch(()=>{});
+}
+
+document.getElementById('load-btn').addEventListener('click', ()=>{
+  const sym  = document.getElementById('sym-sel').value;
+  const date = document.getElementById('date-sel').value;
+  loadDb(sym, date);
+});
+
+// Auto-load on page open
+loadDb(document.getElementById('sym-sel').value, todayLocal());
+
+// ── Reset ────────────────────────────────────────────────────────────────────
+document.getElementById('reset-btn').addEventListener('click', ()=>{
+  const doIb  = document.getElementById('chk-ib').checked;
+  const doDb  = document.getElementById('chk-db').checked;
+  if(!doIb && !doDb){ alert('Select at least one option.'); return; }
+
+  const what = [doIb ? 'Cancel IB orders' : null, doDb ? 'Wipe DB tables' : null]
+    .filter(Boolean).join(' + ');
+  if(!confirm(`Are you sure?\n\n${what}\n\nThis cannot be undone.`)) return;
+
+  const btn = document.getElementById('reset-btn');
+  const msg = document.getElementById('reset-msg');
+  const det = document.getElementById('reset-detail');
+  btn.disabled = true;
+  msg.style.color = '#8b949e';
+  msg.textContent = 'Working...';
+  det.style.display = 'none';
+
+  fetch('/api/reset', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({cancel_ib: doIb, wipe_db: doDb})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    const errs = d.errors || [];
+    if(errs.length){
+      msg.style.color = '#d29922';
+      msg.textContent = '⚠ Done with warnings';
+    } else {
+      msg.style.color = '#3fb950';
+      msg.textContent = '✓ Reset complete';
+    }
+
+    // Build detail lines
+    const lines = [];
+    if(doIb) lines.push(`IB cancel: ${d.ib_cancel}`);
+    if(doDb && d.wipe){
+      for(const [tbl,cnt] of Object.entries(d.wipe))
+        lines.push(`${tbl}: deleted ${cnt} rows`);
+    }
+    errs.forEach(e => lines.push(`⚠ ${e}`));
+    det.innerHTML = lines.map(l=>`<div style="color:#6e7681">${l}</div>`).join('');
+    det.style.display = '';
+  })
+  .catch(e=>{
+    msg.style.color = '#f85149';
+    msg.textContent = '✗ ' + e;
+  })
+  .finally(()=>{ btn.disabled = false; });
+});
+</script>
+{% endblock %}

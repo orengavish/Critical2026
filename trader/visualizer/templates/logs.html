@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Logs — Galao{% endblock %}
+{% block content %}
+<h2>Log Viewer <span id="refresh-indicator"></span></h2>
+<div class="filters">
+  <select id="f-component" onchange="refresh()">
+    {% for c in components %}
+    <option value="{{ c }}">{{ c }}</option>
+    {% endfor %}
+  </select>
+  <select id="f-level" onchange="refresh()">
+    <option value="">All levels</option>
+    <option value="DEBUG">DEBUG</option>
+    <option value="INFO">INFO</option>
+    <option value="WARNING">WARNING</option>
+    <option value="ERROR">ERROR</option>
+    <option value="CRITICAL">CRITICAL</option>
+  </select>
+  <input id="f-search" type="text" placeholder="Search..." oninput="applySearch()" style="width:160px">
+  <label style="color:#8b949e;font-size:12px">
+    <input type="checkbox" id="auto-scroll" checked style="width:auto">
+    Auto-scroll
+  </label>
+  <span id="line-count" style="color:#8b949e;font-size:11px;margin-left:4px"></span>
+</div>
+<div id="trace-box"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _allLines = [];
+
+function escHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function levelClass(line){
+  if(/\| CRITICAL/.test(line)) return 'trace-CRITICAL';
+  if(/\| ERROR/.test(line))    return 'trace-ERROR';
+  if(/\| WARNING/.test(line))  return 'trace-WARNING';
+  if(/\| INFO/.test(line))     return 'trace-INFO';
+  return 'trace-DEBUG';
+}
+
+function applySearch(){
+  const q = document.getElementById('f-search').value.toLowerCase();
+  const box = document.getElementById('trace-box');
+  const lines = q ? _allLines.filter(l => l.toLowerCase().includes(q)) : _allLines;
+  box.innerHTML = lines.map(l =>
+    `<div class="${levelClass(l)}">${escHtml(l)}</div>`
+  ).join('');
+  document.getElementById('line-count').textContent = lines.length + ' lines';
+  const autoScroll = document.getElementById('auto-scroll').checked;
+  if(autoScroll) box.scrollTop = box.scrollHeight;
+}
+
+function refresh(){
+  const comp  = document.getElementById('f-component').value;
+  const level = document.getElementById('f-level').value;
+  fetch(`/api/logs?component=${comp}&level=${level}&limit=500`)
+    .then(r=>r.json()).then(d=>{
+      _allLines = d.lines || [];
+      applySearch();
+      document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+    });
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+{% endblock %}

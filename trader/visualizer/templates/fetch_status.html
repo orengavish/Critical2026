@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Fetch Status — Galao{% endblock %}
+
+{% block content %}
+<h2>Fetch Status <span id="refresh-indicator"></span></h2>
+
+<div class="card" style="margin-bottom:12px">
+  <div style="display:flex;gap:16px;align-items:center;font-size:12px">
+    <span><span class="dot ok"></span> Both files OK</span>
+    <span><span class="dot partial"></span> Partial (one missing)</span>
+    <span><span class="dot err"></span> Error</span>
+    <span><span class="dot pending"></span> Not fetched</span>
+    <span><span class="dot holiday"></span> Non-trading day</span>
+  </div>
+</div>
+
+<div id="grid-wrap" style="overflow-x:auto">
+  <table id="fetch-grid">
+    <thead><tr id="grid-head"></tr></thead>
+    <tbody id="grid-body"></tbody>
+  </table>
+</div>
+
+<div id="fetch-msg" style="margin-top:10px;font-size:12px;color:#3fb950;min-height:18px"></div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
+  .dot.ok{background:#3fb950}
+  .dot.partial{background:#d29922}
+  .dot.err{background:#f85149}
+  .dot.pending{background:#30363d}
+  .dot.holiday{background:#21262d;border:1px solid #30363d}
+
+  #fetch-grid th{font-size:11px;padding:4px 6px;white-space:nowrap}
+  #fetch-grid td{padding:3px 5px;text-align:center;white-space:nowrap}
+
+  .cell-ok      {background:#0f2d1a;color:#3fb950}
+  .cell-partial {background:#2d2a0f;color:#d29922}
+  .cell-err     {background:#2d0f0f;color:#f85149}
+  .cell-pending {background:#161b22;color:#6e7681}
+  .cell-holiday {background:#0d1117;color:#30363d}
+
+  .fetch-btn{background:#21262d;border:1px solid #30363d;color:#8b949e;
+             font-size:10px;padding:1px 5px;border-radius:3px;cursor:pointer}
+  .fetch-btn:hover{background:#30363d;color:#c9d1d9}
+</style>
+
+<script>
+let _days = [], _symbols = [], _grid = {};
+
+function cellClass(trades, bidask) {
+  if (!trades && !bidask) return 'cell-pending';
+  const tok = trades && trades.status === 'ok';
+  const bok = bidask && bidask.status === 'ok';
+  if (tok && bok)  return 'cell-ok';
+  if (tok || bok)  return 'cell-partial';
+  return 'cell-err';
+}
+
+function cellLabel(trades, bidask) {
+  if (!trades && !bidask) return '—';
+  const tr = trades ? (trades.status === 'ok' ? `T:${(trades.rows/1000).toFixed(0)}k` : 'T:err') : 'T:–';
+  const ba = bidask ? (bidask.status === 'ok' ? `B:${(bidask.rows/1000).toFixed(0)}k` : 'B:err') : 'B:–';
+  return tr + ' ' + ba;
+}
+
+function cellTitle(trades, bidask) {
+  let parts = [];
+  if (trades) parts.push('trades: ' + trades.status + (trades.error ? ' (' + trades.error + ')' : ''));
+  if (bidask) parts.push('bidask: ' + bidask.status + (bidask.error ? ' (' + bidask.error + ')' : ''));
+  return parts.join('\n') || 'not fetched';
+}
+
+function renderGrid() {
+  const head = document.getElementById('grid-head');
+  const body = document.getElementById('grid-body');
+
+  // Header: Date | sym1 | sym2 ...
+  head.innerHTML = '<th>Date</th>' +
+    _symbols.map(s => `<th>${s}</th>`).join('') + '<th></th>';
+
+  // Rows: one per day
+  body.innerHTML = _days.map(d => {
+    const cells = _symbols.map(sym => {
+      const info = _grid[d] && _grid[d][sym];
+      const t = info && info.trades;
+      const b = info && info.bidask;
+      const cls = cellClass(t, b);
+      const lbl = cellLabel(t, b);
+      const title = cellTitle(t, b);
+      return `<td class="${cls}" title="${title}">${lbl}</td>`;
+    }).join('');
+    const btn = `<td><button class="fetch-btn" onclick="fetchNow('${d}')">Fetch</button></td>`;
+    return `<tr><td class="ts">${d}</td>${cells}${btn}</tr>`;
+  }).join('');
+}
+
+function load() {
+  fetch('/api/fetch-status').then(r => r.json()).then(data => {
+    _days = data.days;
+    _symbols = data.symbols;
+    _grid = data.grid;
+    renderGrid();
+    const ind = document.getElementById('refresh-indicator');
+    if (ind) ind.textContent = new Date().toTimeString().slice(0,8);
+  }).catch(() => {});
+}
+
+function fetchNow(date) {
+  const msg = document.getElementById('fetch-msg');
+  const syms = _symbols;
+  let pending = syms.length;
+  msg.style.color = '#d29922';
+  msg.textContent = `Starting fetch for ${date}...`;
+
+  syms.forEach(sym => {
+    fetch('/api/fetch-now', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({symbol: sym, date: date})
+    }).then(r => r.json()).then(() => {
+      pending--;
+      if (pending === 0) {
+        msg.style.color = '#3fb950';
+        msg.textContent = `Fetch started for all symbols on ${date}. Refresh in ~30s.`;
+        setTimeout(load, 5000);
+      }
+    }).catch(() => {
+      pending--;
+      msg.style.color = '#f85149';
+      msg.textContent = 'Error starting fetch.';
+    });
+  });
+}
+
+load();
+setInterval(load, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "galao-db": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "C:\\Projects\\galgo2026\\trader\\data\\galao.db"
+      ]
+    }
+  }
+}

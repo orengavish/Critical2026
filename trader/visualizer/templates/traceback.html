@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Traceback — Galao{% endblock %}
+
+{% block content %}
+<h2>Traceback <span id="refresh-indicator"></span></h2>
+
+<!-- Summary bar -->
+<div class="card-row" id="summary-cards" style="margin-bottom:12px"></div>
+
+<!-- Health + rate -->
+<div class="card" id="rate-card" style="margin-bottom:12px;display:none">
+  <span id="rate-label"></span>
+</div>
+
+<!-- Drop reasons -->
+<h2>Drop Analysis</h2>
+<div class="card" style="margin-bottom:12px">
+  <table>
+    <thead>
+      <tr>
+        <th>Reason</th><th>Count</th><th>Explanation</th>
+      </tr>
+    </thead>
+    <tbody id="drops-body"></tbody>
+  </table>
+</div>
+
+<!-- Per-day breakdown -->
+<h2>Daily Verification Rate</h2>
+<div class="card" style="margin-bottom:12px;overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th><th>Recorded</th><th>Verified</th><th>Rate</th>
+      </tr>
+    </thead>
+    <tbody id="daily-body"></tbody>
+  </table>
+</div>
+
+<!-- Verified trades -->
+<h2>Verified Trades <span style="font-size:11px;color:#8b949e">(last 50)</span></h2>
+<div style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Sym</th><th>Dir</th><th>Type</th>
+        <th>Fill</th><th>Fill Time</th>
+        <th>Exit</th><th>Exit Time</th>
+        <th>Reason</th><th>P&amp;L pts</th>
+        <th>Bracket</th><th>Source</th><th>Depth</th>
+      </tr>
+    </thead>
+    <tbody id="trades-body"></tbody>
+  </table>
+</div>
+<div id="empty-msg" style="color:#6e7681;font-size:12px;margin-top:12px;display:none">
+  No verified trades yet. Run a live session with armed critical lines to generate trades.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .rate-ok   { color:#3fb950 }
+  .rate-warn { color:#d29922 }
+  .rate-bad  { color:#f85149 }
+</style>
+<script>
+function pnlClass(v){ return v > 0 ? 'pnl-pos' : v < 0 ? 'pnl-neg' : ''; }
+function fmtTime(t){ return t ? t.replace('T',' ').slice(0,19) : ''; }
+function rateClass(r){ return r == null ? '' : r >= 80 ? 'rate-ok' : r >= 60 ? 'rate-warn' : 'rate-bad'; }
+
+function load(){
+  fetch('/api/traceback-stats').then(r=>r.json()).then(d=>{
+    const ind = document.getElementById('refresh-indicator');
+    if(ind) ind.textContent = new Date().toTimeString().slice(0,8);
+
+    // ── Summary cards ────────────────────────────────────────────────────
+    const cards = [
+      {val: d.closed,   lbl: 'CLOSED'},
+      {val: d.recorded, lbl: 'Recorded'},
+      {val: d.verified, lbl: 'Verified'},
+      {val: d.rate != null ? d.rate+'%' : '—', lbl: 'Rate', cls: rateClass(d.rate)},
+    ];
+    document.getElementById('summary-cards').innerHTML = cards.map(c =>
+      `<div class="stat-card">
+         <div class="val ${c.cls||''}">${c.val ?? 0}</div>
+         <div class="lbl">${c.lbl}</div>
+       </div>`
+    ).join('');
+
+    // ── Rate card ─────────────────────────────────────────────────────────
+    const rc = document.getElementById('rate-card');
+    if(d.rate != null){
+      rc.style.display = '';
+      const cls = rateClass(d.rate);
+      const target = 80;
+      const bar = Math.min(100, d.rate);
+      rc.innerHTML = `
+        <div style="margin-bottom:6px;font-size:12px">
+          Verification rate: <span class="${cls}" style="font-weight:bold">${d.rate}%</span>
+          <span style="color:#6e7681"> (target ≥ ${target}%)</span>
+        </div>
+        <div style="background:#21262d;border-radius:4px;height:8px;width:300px">
+          <div style="background:${d.rate>=80?'#3fb950':d.rate>=60?'#d29922':'#f85149'};
+                      width:${bar}%;height:8px;border-radius:4px"></div>
+        </div>`;
+    }
+
+    // ── Drop reasons ──────────────────────────────────────────────────────
+    document.getElementById('drops-body').innerHTML = d.drop_reasons.map(r =>
+      `<tr>
+         <td style="font-weight:bold;color:#d29922">${r.reason}</td>
+         <td style="text-align:right">${r.count}</td>
+         <td style="color:#8b949e">${r.note}</td>
+       </tr>`
+    ).join('');
+
+    // ── Daily breakdown ───────────────────────────────────────────────────
+    document.getElementById('daily-body').innerHTML = (d.daily || []).map(r => {
+      const rate = r.recorded > 0 ? Math.round(100*r.verified/r.recorded) : null;
+      return `<tr>
+        <td class="ts">${r.day}</td>
+        <td style="text-align:right">${r.recorded}</td>
+        <td style="text-align:right">${r.verified}</td>
+        <td class="${rateClass(rate)}" style="text-align:right">
+          ${rate != null ? rate+'%' : '—'}
+        </td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="4" style="color:#6e7681">No data yet</td></tr>';
+
+    // ── Verified trades table ─────────────────────────────────────────────
+    const empty = document.getElementById('empty-msg');
+    if(!d.recent || d.recent.length === 0){
+      document.getElementById('trades-body').innerHTML = '';
+      empty.style.display = '';
+    } else {
+      empty.style.display = 'none';
+      document.getElementById('trades-body').innerHTML = d.recent.map(t =>
+        `<tr>
+           <td class="ts">${t.command_id}</td>
+           <td>${t.symbol}</td>
+           <td class="${t.direction}">${t.direction}</td>
+           <td class="${t.entry_type}">${t.entry_type}</td>
+           <td style="text-align:right">${t.fill_price ?? ''}</td>
+           <td class="ts">${fmtTime(t.fill_time)}</td>
+           <td style="text-align:right">${t.exit_price ?? ''}</td>
+           <td class="ts">${fmtTime(t.exit_time)}</td>
+           <td>${t.exit_reason}</td>
+           <td class="${pnlClass(t.pnl_points)}" style="text-align:right">
+             ${t.pnl_points != null ? t.pnl_points.toFixed(2) : ''}
+           </td>
+           <td style="text-align:right">${t.bracket_size}</td>
+           <td style="color:#8b949e">${t.source || ''}</td>
+           <td style="text-align:right">${t.chain_depth ?? 0}</td>
+         </tr>`
+      ).join('');
+    }
+  }).catch(()=>{});
+}
+
+load();
+setInterval(load, 15000);
+</script>
+{% endblock %}

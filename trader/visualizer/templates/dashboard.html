@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Galao{% endblock %}
+{% block content %}
+
+<div class="card" style="margin-bottom:10px;padding:10px 14px">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <button id="btn-replenish" onclick="toggleReplenish()"
+      style="font-family:monospace;font-size:13px;font-weight:bold;padding:6px 22px;
+             border-radius:5px;cursor:pointer;border:2px solid #30363d;
+             background:#161b22;color:#6e7681;min-width:180px;white-space:nowrap">
+      REPLENISH: OFF
+    </button>
+
+    <button id="btn-flatten" onclick="doFlattenAll()"
+      style="font-family:monospace;font-size:12px;font-weight:bold;padding:6px 16px;
+             border-radius:5px;cursor:pointer;border:1px solid #f85149;
+             background:#2d1a1a;color:#f85149;white-space:nowrap">
+      ✕ Flatten All
+    </button>
+    <span id="flatten-status" style="font-size:11px;color:#8b949e"></span>
+
+    <div id="rp-stats" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <span class="rp-pill" id="rp-total"  style="font-size:11px;color:#8b949e">total: —</span>
+      <span class="rp-pill" id="rp-pending"  style="font-size:11px;color:#d29922"></span>
+      <span class="rp-pill" id="rp-submitted" style="font-size:11px;color:#58a6ff"></span>
+      <span class="rp-pill" id="rp-filled"   style="font-size:11px;color:#3fb950"></span>
+      <span class="rp-pill" id="rp-closed"   style="font-size:11px;color:#6e7681"></span>
+      <span class="rp-pill" id="rp-error"    style="font-size:11px;color:#f85149"></span>
+      <span class="rp-pill" id="rp-pnl"      style="font-size:12px;font-weight:bold"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:12px;padding:10px 14px">
+
+  <!-- ── Row 1: mode + common controls ──────────────────────────────────────── -->
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <span style="color:#79c0ff;font-size:12px;font-weight:bold;min-width:60px">GENERATE</span>
+
+    <span style="font-size:11px;color:#8b949e">Mode</span>
+    <label style="font-size:11px;color:#8b949e">
+      <input type="radio" name="g-mode" value="random" checked onchange="onGenModeChange()"> Random
+    </label>
+    <label style="font-size:11px;color:#58a6ff">
+      <input type="radio" name="g-mode" value="critical_line" onchange="onGenModeChange()"> Critical Lines
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Bracket&nbsp;pts
+      <input id="g-bracket" type="number" value="8" min="0.25" step="0.25"
+        style="width:60px;margin-left:4px;background:#0d1117;color:#c9d1d9;
+               border:1px solid #30363d;padding:2px 5px;border-radius:3px;font-family:monospace">
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Offset&nbsp;ticks
+      <input id="g-offset" type="number" value="2" min="1" max="20"
+        style="width:46px;margin-left:4px;background:#0d1117;color:#c9d1d9;
+               border:1px solid #30363d;padding:2px 5px;border-radius:3px;font-family:monospace">
+    </label>
+
+    <label style="font-size:11px;color:#8b949e" id="g-count-lbl">Count
+      <input id="g-count" type="number" value="10" min="1" max="200"
+        style="width:50px;margin-left:4px;background:#0d1117;color:#c9d1d9;
+               border:1px solid #30363d;padding:2px 5px;border-radius:3px;font-family:monospace">
+    </label>
+
+    <span style="font-size:11px;color:#8b949e">Types</span>
+    <label style="font-size:11px;color:#3fb950"><input type="checkbox" id="g-mkt" checked> MKT</label>
+    <label style="font-size:11px;color:#79c0ff"><input type="checkbox" id="g-lmt" checked> LMT</label>
+    <label style="font-size:11px;color:#e3b341"><input type="checkbox" id="g-stp" checked> STP</label>
+
+    <button id="btn-gen" onclick="doGenerate()"
+      style="background:#1a2d1a;color:#3fb950;border:1px solid #3fb950;padding:4px 16px;
+             border-radius:4px;cursor:pointer;font-family:monospace;font-size:12px;font-weight:bold">
+      Generate
+    </button>
+    <span id="gen-status" style="font-size:11px;color:#8b949e"></span>
+  </div>
+
+  <!-- ── Row 2: Critical Lines sub-panel (hidden by default) ────────────────── -->
+  <div id="g-cl-panel" style="display:none;border-top:1px solid #30363d;margin-top:10px;padding-top:10px">
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+
+      <!-- DB lines checkboxes -->
+      <div style="min-width:180px">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:6px">
+          Today's lines in DB
+          <button onclick="refreshCLLines()"
+            style="margin-left:6px;background:#21262d;color:#8b949e;border:1px solid #30363d;
+                   padding:1px 8px;border-radius:3px;cursor:pointer;font-family:monospace;font-size:10px">↻</button>
+        </div>
+        <div id="g-cl-db-list" style="font-size:11px;color:#6e7681;line-height:1.8">
+          Loading…
+        </div>
+      </div>
+
+      <!-- Manual text input -->
+      <div style="flex:1;min-width:220px">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:6px">
+          Paste / type lines
+          <span style="color:#6e7681;font-size:10px">&nbsp;e.g. "support: 7150!, 7140 / resistance: 7170"</span>
+        </div>
+        <textarea id="g-cl-text" rows="3"
+          placeholder="support: 7150!, 7140&#10;resistance: 7170"
+          style="width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;
+                 padding:5px;border-radius:3px;font-family:monospace;font-size:11px;resize:vertical">
+        </textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+          <button onclick="doSaveLines()"
+            style="background:#0d2a4a;color:#58a6ff;border:1px solid #58a6ff;
+                   padding:3px 12px;border-radius:4px;cursor:pointer;
+                   font-family:monospace;font-size:11px">
+            → Save to DB
+          </button>
+          <span id="save-lines-status" style="font-size:11px;color:#8b949e"></span>
+        </div>
+      </div>
+
+    </div>
+    <div style="font-size:10px;color:#6e7681;margin-top:6px">
+      Count = trades per line · Direction fixed by line type (SUPPORT→BUY, RESISTANCE→SELL) · critical_line_id stored on every command.
+    </div>
+  </div>
+
+</div>
+
+<!-- Status filter buttons -->
+<div class="card-row" style="margin-bottom:8px" id="filter-bar">
+  <div class="stat-card" id="fc-all"       onclick="setFilter(null)"       style="cursor:pointer;border-color:#58a6ff">
+    <div class="val" id="s-all">--</div><div class="lbl">ALL ACTIVE</div></div>
+  <div class="stat-card" id="fc-pending"   onclick="setFilter('PENDING')"   style="cursor:pointer">
+    <div class="val" id="s-pending" style="color:#d29922">--</div><div class="lbl">PENDING</div></div>
+  <div class="stat-card" id="fc-submitted" onclick="setFilter('SUBMITTED')" style="cursor:pointer">
+    <div class="val" id="s-submitted" style="color:#58a6ff">--</div><div class="lbl">SUBMITTED</div></div>
+  <div class="stat-card" id="fc-filled"    onclick="setFilter('FILLED')"    style="cursor:pointer">
+    <div class="val" id="s-filled" style="color:#3fb950">--</div><div class="lbl">FILLED</div></div>
+  <div class="stat-card" id="fc-closed"    onclick="setFilter('CLOSED')"    style="cursor:pointer">
+    <div class="val" id="s-closed">--</div><div class="lbl">CLOSED TODAY</div></div>
+  <div class="stat-card" id="fc-error"     onclick="setFilter('ERROR')"     style="cursor:pointer">
+    <div class="val" id="s-errors" style="color:#f85149">--</div><div class="lbl">ERRORS</div></div>
+</div>
+
+<!-- P&L row: realized today + unrealized open -->
+<div class="card-row" style="margin-bottom:12px">
+  <div class="stat-card">
+    <div style="display:flex;gap:12px;align-items:baseline">
+      <div><div class="val pnl-pos" id="s-wins" style="font-size:18px">--</div><div class="lbl">#Gains</div></div>
+      <div><div class="val pnl-pos" id="s-gains" style="font-size:15px">--</div><div class="lbl">pts</div></div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div style="display:flex;gap:12px;align-items:baseline">
+      <div><div class="val pnl-neg" id="s-losses" style="font-size:18px">--</div><div class="lbl">#Lost</div></div>
+      <div><div class="val pnl-neg" id="s-loss-total" style="font-size:15px">--</div><div class="lbl">pts</div></div>
+    </div>
+  </div>
+  <div class="stat-card" style="min-width:130px">
+    <div class="val" id="s-net" style="font-size:20px">--</div>
+    <div class="lbl">NET P&L today</div>
+  </div>
+  <div class="stat-card" style="min-width:130px">
+    <div class="val" id="s-pnl" style="font-size:18px">--</div>
+    <div class="lbl">OPEN (unrealized)</div>
+  </div>
+</div>
+
+<div style="display:flex;gap:16px;align-items:flex-start">
+
+  <!-- ── Price Ladder ───────────────────────────────────────────── -->
+  <div class="card" style="min-width:380px;flex:0 0 380px">
+    <h2>Price Ladder <span id="refresh-indicator" style="font-size:10px;color:#6e7681"></span></h2>
+    <div id="ladder" class="ladder" style="margin-top:8px">
+      <div style="color:#6e7681;font-size:11px">Loading...</div>
+    </div>
+  </div>
+
+  <!-- ── Active commands ───────────────────────────────────────── -->
+  <div class="card" style="flex:1;overflow-x:auto">
+    <h2>Commands &nbsp;<span id="filter-label" style="font-size:11px;color:#58a6ff"></span>
+      <span id="filter-clear" onclick="setFilter(null)"
+        style="display:none;font-size:11px;color:#8b949e;cursor:pointer;margin-left:6px">✕ clear</span>
+    </h2>
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Sym</th><th>Dir</th><th>Type</th>
+        <th>Entry</th><th>TP</th><th>SL</th><th>Bkt</th>
+        <th>Status</th><th>Fill</th><th>Updated</th>
+      </tr></thead>
+      <tbody id="active-tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function activeRow(r){
+  const upd = r.updated_at ? r.updated_at.slice(11,19) : '';
+  let tag = '';
+  if(r.parent_command_id)
+    tag = `<span style="color:#8b949e;font-size:10px" title="Replenished from #${r.parent_command_id}">↻#${r.parent_command_id}</span>`;
+  else if(r.critical_line_id)
+    tag = `<span style="color:#58a6ff;font-size:10px" title="From critical line #${r.critical_line_id}">📍L${r.critical_line_id}</span>`;
+  else if(r.source)
+    tag = `<span style="color:#6e7681;font-size:10px">${r.source.replace('random_','')}</span>`;
+  return `<tr>
+    <td>${r.id} ${tag}</td>
+    <td>${r.symbol}</td>
+    <td>${dir(r.direction)}</td>
+    <td>${et(r.entry_type)}</td>
+    <td>${r.entry_price}</td>
+    <td>${r.tp_price}</td>
+    <td>${r.sl_price}</td>
+    <td>${r.bracket_size}</td>
+    <td>${badge(r.status)}</td>
+    <td>${fmt(r.fill_price)}</td>
+    <td class="ts">${upd}</td>
+  </tr>`;
+}
+
+// ── Filter logic ────────────────────────────────────────────────────────────
+let _activeFilter = null;
+const _filterUrls = {
+  null:      '/api/commands?status_in=PENDING,SUBMITTING,SUBMITTED,FILLED&limit=100',
+  PENDING:   '/api/commands?status=PENDING&limit=100',
+  SUBMITTED: '/api/commands?status_in=SUBMITTED,SUBMITTING&limit=100',
+  FILLED:    '/api/commands?status=FILLED&limit=100',
+  CLOSED:    '/api/commands?status=CLOSED&limit=100',
+  ERROR:     '/api/commands?status_in=ERROR,RECONCILE_REQUIRED&limit=100',
+};
+const _filterCardIds = {
+  null: 'fc-all', PENDING:'fc-pending', SUBMITTED:'fc-submitted',
+  FILLED:'fc-filled', CLOSED:'fc-closed', ERROR:'fc-error'
+};
+
+function setFilter(f){
+  if(f === _activeFilter){ f = null; } // toggle off
+  _activeFilter = f;
+
+  // Update card highlights
+  Object.entries(_filterCardIds).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.style.borderColor = (String(k) === String(f) || (k==='null' && f===null))
+      ? '#58a6ff' : '#30363d';
+  });
+
+  // Filter label
+  const lbl   = document.getElementById('filter-label');
+  const clear  = document.getElementById('filter-clear');
+  lbl.textContent  = f ? `SHOWING: ${f}` : '';
+  clear.style.display = f ? 'inline' : 'none';
+
+  refreshCommands();
+}
+
+function refreshCommands(){
+  const url = _filterUrls[_activeFilter] || _filterUrls[null];
+  fetch(url).then(r=>r.json()).then(rows=>{
+    document.getElementById('active-tbody').innerHTML = rows.map(activeRow).join('');
+  });
+}
+refreshCommands();
+setInterval(refreshCommands, 5000);
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function pts(v){ return v != null ? (v>=0?'+':'')+v.toFixed(2) : '--'; }
+
+function refreshStats(){
+  fetch('/api/stats').then(r=>r.json()).then(d=>{
+    const active = (d.PENDING||0)+(d.SUBMITTED||0)+(d.SUBMITTING||0)+(d.FILLED||0);
+    document.getElementById('s-all').textContent       = active;
+    document.getElementById('s-pending').textContent   = d.PENDING   || 0;
+    document.getElementById('s-submitted').textContent = (d.SUBMITTED||0)+(d.SUBMITTING||0);
+    document.getElementById('s-filled').textContent    = d.FILLED    || 0;
+    document.getElementById('s-closed').textContent    = d.CLOSED    || 0;
+    document.getElementById('s-errors').textContent    = d.ERROR     || 0;
+
+    // P&L today
+    const p = d.pnl_today || {};
+    document.getElementById('s-wins').textContent       = p.wins   ?? '--';
+    document.getElementById('s-gains').textContent      = p.gains  != null ? '+'+p.gains.toFixed(2) : '--';
+    document.getElementById('s-losses').textContent     = p.losses  ?? '--';
+    document.getElementById('s-loss-total').textContent = p.loss_total != null ? p.loss_total.toFixed(2) : '--';
+    const netEl = document.getElementById('s-net');
+    netEl.textContent = pts(p.net ?? null);
+    netEl.className   = 'val ' + ((p.net??0) > 0 ? 'pnl-pos' : (p.net??0) < 0 ? 'pnl-neg' : '');
+
+    // Unrealized
+    const pnl = d.unrealized_pnl;
+    const pnlEl = document.getElementById('s-pnl');
+    pnlEl.textContent = pts(pnl);
+    pnlEl.className   = 'val ' + (pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : '');
+
+    // Replenish
+    const rp = d.replenish || {};
+    document.getElementById('rp-total').textContent    = rp.total ? `↻ total: ${rp.total}` : '↻ none yet';
+    document.getElementById('rp-pending').textContent   = rp.pending   ? `${rp.pending} pending`    : '';
+    document.getElementById('rp-submitted').textContent = rp.submitted ? `${rp.submitted} submitted` : '';
+    document.getElementById('rp-filled').textContent    = rp.filled    ? `${rp.filled} filled`      : '';
+    document.getElementById('rp-closed').textContent    = rp.closed    ? `${rp.closed} closed`      : '';
+    document.getElementById('rp-error').textContent     = rp.error     ? `${rp.error} err`          : '';
+    const rpEl = document.getElementById('rp-pnl');
+    if(rp.pnl != null && rp.closed > 0){
+      rpEl.textContent = pts(rp.pnl) + ' pts';
+      rpEl.style.color = rp.pnl >= 0 ? '#3fb950' : '#f85149';
+    } else { rpEl.textContent = ''; }
+  });
+}
+refreshStats();
+setInterval(refreshStats, 5000);
+
+function refreshLadder(){
+  fetch('/api/nearby').then(r=>r.json()).then(d=>{
+    const el = document.getElementById('ladder');
+    if(!d.lines || !d.lines.length){
+      el.innerHTML = '<div style="color:#6e7681;font-size:11px">No critical lines loaded</div>';
+      return;
+    }
+    const price = d.price;
+    let html = '';
+
+    // Sort all lines by price descending (resistance above, support below)
+    const sorted = [...d.lines].sort((a,b) => b.line.price - a.line.price);
+
+    sorted.forEach(item => {
+      const lp   = item.line.price;
+      const dist = (lp - price).toFixed(2);
+      const sign = dist >= 0 ? '+' : '';
+      const isCurrent = Math.abs(lp - price) < 1.0;
+      const distClass = dist >= 0 ? 'above' : 'below';
+      const lineClass = item.line.line_type;
+
+      // Build command pills
+      const cmds = item.commands || [];
+      const pills = cmds.slice(0,4).map(c =>
+        `<span class="badge ${c.status}" title="${c.direction} ${c.entry_type} #${c.id}">`+
+        `${c.direction[0]}${c.entry_type[0]} #${c.id}</span>`
+      ).join(' ');
+
+      html += `<div class="ladder-row ${lineClass} ${isCurrent?'current':''}">
+        <span class="ladder-price">${lp.toFixed(2)}</span>
+        <span class="ladder-dist ${distClass}">${sign}${dist}</span>
+        <span class="ladder-type">${item.line.line_type.slice(0,4)} S${item.line.line.strength}</span>
+        <span class="ladder-cmds">${pills || '<span style="color:#6e7681;font-size:10px">no cmds</span>'}</span>
+      </div>`;
+    });
+
+    // Current price marker
+    // Insert in correct position (already sorted above, marker shown via 'current' class)
+    el.innerHTML = `<div style="font-size:11px;color:#8b949e;margin-bottom:6px">
+      Dist from <b style="color:#3fb950">${price ? price.toFixed(2) : '--'}</b></div>` + html;
+    document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+  });
+}
+refreshLadder();
+setInterval(refreshLadder, 5000);
+
+// ── Replenish toggle ────────────────────────────────────────────────────────
+let _replenishEnabled = false;
+
+function updateReplenishBtn(enabled){
+  _replenishEnabled = enabled;
+  const btn = document.getElementById('btn-replenish');
+  const info = document.getElementById('replenish-info');
+  if(enabled){
+    btn.textContent = 'REPLENISH: ON';
+    btn.style.background = '#1a3a1a';
+    btn.style.color = '#3fb950';
+    btn.style.borderColor = '#3fb950';
+    info.textContent = 'Broker will auto-spawn a replacement for each closed trade';
+  } else {
+    btn.textContent = 'REPLENISH: OFF';
+    btn.style.background = '#161b22';
+    btn.style.color = '#6e7681';
+    btn.style.borderColor = '#30363d';
+    info.textContent = '';
+  }
+}
+
+function toggleReplenish(){
+  fetch('/api/replenish', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({enabled: !_replenishEnabled})
+  }).then(r=>r.json()).then(d => updateReplenishBtn(d.enabled));
+}
+
+fetch('/api/replenish').then(r=>r.json()).then(d => updateReplenishBtn(d.enabled));
+
+// ── Generate mode switching ──────────────────────────────────────────────────
+let _clLines = [];
+
+function onGenModeChange(){
+  const mode = document.querySelector('input[name="g-mode"]:checked').value;
+  const isCL = mode === 'critical_line';
+  document.getElementById('g-cl-panel').style.display = isCL ? 'block' : 'none';
+  document.getElementById('g-count-lbl').firstChild.textContent = isCL ? 'Per line ' : 'Count ';
+  if(isCL) refreshCLLines();
+}
+
+function refreshCLLines(){
+  fetch('/api/lines').then(r=>r.json()).then(lines=>{
+    _clLines = lines;
+    const el = document.getElementById('g-cl-db-list');
+    if(!lines.length){
+      el.innerHTML = '<span style="color:#6e7681">No lines for today — paste them below</span>';
+      return;
+    }
+    el.innerHTML = lines.map(l=>`
+      <label style="display:block;cursor:pointer">
+        <input type="checkbox" class="cl-cb" data-id="${l.id}" checked>
+        <span class="${l.line_type==='SUPPORT'?'pnl-pos':'pnl-neg'}">${l.price.toFixed(2)}</span>
+        <span style="color:#6e7681;font-size:10px"> ${l.line_type.slice(0,4)} S${l.strength} #${l.id}</span>
+      </label>`
+    ).join('');
+  }).catch(()=>{
+    document.getElementById('g-cl-db-list').textContent = 'Failed to load';
+  });
+}
+
+function doGenerate(){
+  const btn  = document.getElementById('btn-gen');
+  const st   = document.getElementById('gen-status');
+  const mode = document.querySelector('input[name="g-mode"]:checked').value;
+
+  const bracket = parseFloat(document.getElementById('g-bracket').value) || 8;
+  const offset  = parseInt(document.getElementById('g-offset').value)    || 2;
+  const count   = parseInt(document.getElementById('g-count').value)     || 10;
+  const types   = [];
+  if(document.getElementById('g-mkt').checked) types.push('MKT');
+  if(document.getElementById('g-lmt').checked) types.push('LMT');
+  if(document.getElementById('g-stp').checked) types.push('STP');
+
+  if(!types.length){ st.style.color='#f85149'; st.textContent='✗ Select at least one type'; return; }
+
+  const body = {mode, bracket, types, count, max_offset: offset};
+
+  if(mode === 'critical_line'){
+    const selectedIds = [...document.querySelectorAll('.cl-cb:checked')]
+      .map(cb => parseInt(cb.dataset.id));
+    body.line_ids  = selectedIds;
+    body.line_text = (document.getElementById('g-cl-text').value || '').trim();
+    if(!selectedIds.length && !body.line_text){
+      st.style.color='#f85149'; st.textContent='✗ Select DB lines or paste line text'; return;
+    }
+  }
+
+  btn.disabled = true; btn.textContent = 'Generating…';
+  st.style.color = '#8b949e'; st.textContent = '';
+
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.error){
+      st.style.color='#f85149'; st.textContent='✗ '+d.error;
+    } else {
+      const detail = mode==='critical_line'
+        ? `✓ ${d.count} orders from ${body.line_ids.length+(body.line_text?'+':'')} lines`
+        : `✓ ${d.count} orders near ${d.price.toFixed(2)}`;
+      st.style.color='#3fb950'; st.textContent=detail;
+      if(mode==='critical_line') refreshCLLines(); // refresh to show updated lines
+    }
+  })
+  .catch(e=>{ st.style.color='#f85149'; st.textContent='✗ '+e; })
+  .finally(()=>{ btn.disabled=false; btn.textContent='Generate'; });
+}
+
+// ── Save lines to DB ─────────────────────────────────────────────────────────
+function doSaveLines(){
+  const text = (document.getElementById('g-cl-text').value || '').trim();
+  const st   = document.getElementById('save-lines-status');
+  if(!text){ st.style.color='#f85149'; st.textContent='✗ empty'; return; }
+  st.style.color='#8b949e'; st.textContent='saving…';
+  fetch('/api/lines', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.error){ st.style.color='#f85149'; st.textContent='✗ '+d.error; return; }
+    const sup = d.lines.filter(l=>l.line_type==='SUPPORT').length;
+    const res = d.lines.filter(l=>l.line_type==='RESISTANCE').length;
+    st.style.color='#3fb950';
+    st.textContent=`✓ ${d.count} lines (${sup} sup / ${res} res)`;
+    refreshCLLines();
+  })
+  .catch(e=>{ st.style.color='#f85149'; st.textContent='✗ '+e; });
+}
+
+// ── Flatten All ──────────────────────────────────────────────────────────────
+function doFlattenAll(){
+  const btn = document.getElementById('btn-flatten');
+  const st  = document.getElementById('flatten-status');
+  if(!confirm('Cancel all pending orders and close all filled positions?\n\nDB records are preserved (no deletion).'))
+    return;
+  btn.disabled = true;
+  st.style.color = '#8b949e'; st.textContent = 'working…';
+  fetch('/api/cancel-all', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(r=>r.json())
+    .then(d=>{
+      const errs = d.errors && d.errors.length ? `  ⚠ ${d.errors.join(', ')}` : '';
+      st.style.color = errs ? '#d29922' : '#3fb950';
+      st.textContent = `✓ cancelled ${d.db_cancelled}  flattened ${d.db_flattened}`
+                     + (d.ib_flatten ? `  (${d.ib_flatten} IB close orders)` : '')
+                     + errs;
+      refreshCommands(); refreshStats();
+    })
+    .catch(e=>{ st.style.color='#f85149'; st.textContent='✗ '+e; })
+    .finally(()=>{ btn.disabled=false; });
+}
+</script>
+{% endblock %}

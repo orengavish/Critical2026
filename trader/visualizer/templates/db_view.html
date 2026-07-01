@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+{% block title %}DB View — Galao{% endblock %}
+{% block content %}
+<h2>Trade Database <span id="refresh-indicator" style="font-size:10px;color:#6e7681"></span></h2>
+
+<!-- ── Quick filter pills ──────────────────────────────────────────────── -->
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px" id="quick-pills">
+  <button class="qpill active" data-q="active"      onclick="quickFilter(this)">Active</button>
+  <button class="qpill"        data-q="today"       onclick="quickFilter(this)">Today</button>
+  <button class="qpill"        data-q="yesterday"   onclick="quickFilter(this)">Yesterday</button>
+  <button class="qpill"        data-q="replenished" onclick="quickFilter(this)">Replenished</button>
+  <button class="qpill"        data-q="gains"       onclick="quickFilter(this)">Gains</button>
+  <button class="qpill"        data-q="losses"      onclick="quickFilter(this)">Losses</button>
+  <button class="qpill"        data-q="all"         onclick="quickFilter(this)">All</button>
+  <button class="qpill"        data-q="chain" id="chain-pill" onclick="quickFilter(this)" style="display:none">⊕ Chain</button>
+</div>
+
+<!-- ── Detailed filters ────────────────────────────────────────────────── -->
+<div class="card" style="padding:10px 14px;margin-bottom:10px">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+
+    <label style="font-size:11px;color:#8b949e">Status
+      <select id="f-status" onchange="applyFilters()" style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:11px">
+        <option value="">All</option>
+        <option value="PENDING">PENDING</option>
+        <option value="SUBMITTED">SUBMITTED</option>
+        <option value="FILLED">FILLED</option>
+        <option value="CLOSED">CLOSED</option>
+        <option value="ERROR">ERROR</option>
+      </select>
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Source
+      <select id="f-source" onchange="applyFilters()" style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:11px">
+        <option value="">All</option>
+        <option value="random_mkt">random_mkt</option>
+        <option value="random_lmt">random_lmt</option>
+        <option value="random_stp">random_stp</option>
+        <option value="critical_line">critical_line</option>
+        <option value="test">test</option>
+      </select>
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Dir
+      <select id="f-dir" onchange="applyFilters()" style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:11px">
+        <option value="">All</option>
+        <option value="BUY">BUY</option>
+        <option value="SELL">SELL</option>
+      </select>
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Type
+      <select id="f-type" onchange="applyFilters()" style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:11px">
+        <option value="">All</option>
+        <option value="MKT">MKT</option>
+        <option value="LMT">LMT</option>
+        <option value="STP">STP</option>
+      </select>
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Exit reason
+      <select id="f-reason" onchange="applyFilters()" style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:11px">
+        <option value="">All</option>
+        <option value="TP">TP</option>
+        <option value="SL">SL</option>
+        <option value="STAGNATION">STAGNATION</option>
+        <option value="SHUTDOWN">SHUTDOWN</option>
+        <option value="MANUAL">MANUAL</option>
+      </select>
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Date from
+      <input id="f-date-from" type="date" onchange="applyFilters()"
+        style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 5px;border-radius:3px;font-family:monospace;font-size:11px">
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">Date to
+      <input id="f-date-to" type="date" onchange="applyFilters()"
+        style="margin-left:4px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:2px 5px;border-radius:3px;font-family:monospace;font-size:11px">
+    </label>
+
+    <label style="font-size:11px;color:#8b949e">
+      <input id="f-replenished" type="checkbox" onchange="applyFilters()"> Replenished only
+    </label>
+
+    <button onclick="clearFilters()" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:3px 10px;border-radius:4px;cursor:pointer;font-family:monospace;font-size:11px">Clear</button>
+    <span id="row-count" style="font-size:11px;color:#8b949e"></span>
+
+    <!-- Summary for filtered set -->
+    <span id="filter-pnl" style="font-size:12px;font-weight:bold;margin-left:8px"></span>
+  </div>
+</div>
+
+<!-- ── Chain banner ──────────────────────────────────────────────────────── -->
+<div id="chain-banner" style="display:none;padding:6px 10px;background:#1a2940;border-radius:4px;margin-bottom:8px;font-size:11px;color:#79c0ff"></div>
+
+<!-- ── Table ────────────────────────────────────────────────────────────── -->
+<div style="overflow-x:auto">
+<table id="db-table">
+  <thead><tr>
+    <th onclick="sortBy('id')">ID ▾</th>
+    <th onclick="sortBy('created_at')">Created</th>
+    <th>Source</th>
+    <th>↻</th>
+    <th>Sym</th>
+    <th>Dir</th>
+    <th>Type</th>
+    <th onclick="sortBy('entry_price')">Entry</th>
+    <th>TP</th>
+    <th>SL</th>
+    <th onclick="sortBy('bracket_size')">Bkt</th>
+    <th>Status</th>
+    <th onclick="sortBy('fill_price')">Fill</th>
+    <th onclick="sortBy('exit_price')">Exit</th>
+    <th>Reason</th>
+    <th onclick="sortBy('pnl_points')">P&amp;L</th>
+    <th onclick="sortBy('fill_time')">Fill Time</th>
+    <th onclick="sortBy('exit_time')">Exit Time</th>
+  </tr></thead>
+  <tbody id="db-tbody"></tbody>
+</table>
+</div>
+
+<style>
+.qpill{background:#21262d;color:#8b949e;border:1px solid #30363d;padding:3px 12px;
+       border-radius:12px;cursor:pointer;font-family:monospace;font-size:11px}
+.qpill:hover{background:#30363d;color:#c9d1d9}
+.qpill.active{background:#1a2940;color:#58a6ff;border-color:#58a6ff}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _allRows = [];
+let _sortKey = 'id', _sortAsc = false;
+let _quickMode = 'active';
+let _chainRoot = null;   // non-null = chain trace mode
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function isoToday(offset=0){
+  const d = new Date(); d.setDate(d.getDate()+offset);
+  return d.toISOString().slice(0,10);
+}
+function isReplenished(r){ return r.parent_command_id !== null && r.parent_command_id !== undefined; }
+
+// Walk up parent links to find the chain root id
+function chainRoot(id){
+  const byId = Object.fromEntries(_allRows.map(r=>[r.id, r]));
+  let cur = byId[id];
+  while(cur && isReplenished(cur)) cur = byId[cur.parent_command_id];
+  return cur ? cur.id : id;
+}
+
+// Collect all ids in a chain (root + all descendants recursively)
+function chainIds(rootId){
+  const result = new Set([rootId]);
+  let changed = true;
+  while(changed){
+    changed = false;
+    _allRows.forEach(r => {
+      if(r.parent_command_id !== null && r.parent_command_id !== undefined
+         && result.has(r.parent_command_id) && !result.has(r.id)){
+        result.add(r.id); changed = true;
+      }
+    });
+  }
+  return result;
+}
+
+// Depth in chain (0 = root, 1 = first replenishment, …)
+function chainDepth(r){
+  const byId = Object.fromEntries(_allRows.map(x=>[x.id, x]));
+  let depth = 0, cur = r;
+  while(cur && isReplenished(cur)){ depth++; cur = byId[cur.parent_command_id]; }
+  return depth;
+}
+
+// ── Chain trace mode ───────────────────────────────────────────────────────
+function showChain(id){
+  _chainRoot = chainRoot(id);
+  const pill = document.getElementById('chain-pill');
+  pill.style.display = '';
+  document.querySelectorAll('.qpill').forEach(b => b.classList.remove('active'));
+  pill.classList.add('active');
+  _quickMode = 'chain';
+  applyFilters();
+}
+
+function exitChain(){
+  _chainRoot = null;
+  _quickMode = 'all';
+  document.getElementById('chain-pill').style.display = 'none';
+  document.querySelectorAll('.qpill').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-q="all"]').classList.add('active');
+  applyFilters();
+}
+
+// ── Quick filters ──────────────────────────────────────────────────────────
+const _quickPresets = {
+  active:      r => ['PENDING','SUBMITTING','SUBMITTED','FILLED'].includes(r.status),
+  today:       r => (r.created_at||'').slice(0,10) === isoToday(),
+  yesterday:   r => (r.created_at||'').slice(0,10) === isoToday(-1),
+  replenished: r => isReplenished(r),
+  gains:       r => r.status === 'CLOSED' && r.pnl_points != null && r.pnl_points > 0,
+  losses:      r => r.status === 'CLOSED' && r.pnl_points != null && r.pnl_points <= 0,
+  all:         r => true,
+  chain:       r => _chainRoot !== null && chainIds(_chainRoot).has(r.id),
+};
+
+function quickFilter(btn){
+  _chainRoot = null;
+  document.querySelectorAll('.qpill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _quickMode = btn.dataset.q;
+  applyFilters();
+}
+
+// ── Detail filters ─────────────────────────────────────────────────────────
+function applyFilters(){
+  const st   = document.getElementById('f-status').value;
+  const src  = document.getElementById('f-source').value;
+  const d    = document.getElementById('f-dir').value;
+  const t    = document.getElementById('f-type').value;
+  const rsn  = document.getElementById('f-reason').value;
+  const from = document.getElementById('f-date-from').value;
+  const to   = document.getElementById('f-date-to').value;
+  const rp   = document.getElementById('f-replenished').checked;
+
+  const preset = _quickPresets[_quickMode] || _quickPresets.all;
+  let rows = _allRows.filter(r => {
+    if(!preset(r)) return false;
+    if(st  && r.status     !== st)   return false;
+    if(src && r.source     !== src)  return false;
+    if(d   && r.direction  !== d)    return false;
+    if(t   && r.entry_type !== t)    return false;
+    if(rsn && r.exit_reason!== rsn)  return false;
+    if(rp  && !isReplenished(r))     return false;
+    const dt = (r.created_at||'').slice(0,10);
+    if(from && dt < from) return false;
+    if(to   && dt > to)   return false;
+    return true;
+  });
+
+  // In chain mode sort by id ascending to show lineage order
+  if(_quickMode === 'chain'){
+    rows.sort((a,b) => a.id - b.id);
+  } else {
+    rows.sort((a,b)=>{
+      let av = a[_sortKey], bv = b[_sortKey];
+      if(av==null) av = _sortAsc ? '\uffff' : '';
+      if(bv==null) bv = _sortAsc ? '\uffff' : '';
+      return _sortAsc ? (av>bv?1:-1) : (av<bv?1:-1);
+    });
+  }
+
+  // Chain header
+  const chainBanner = document.getElementById('chain-banner');
+  if(_quickMode === 'chain' && _chainRoot !== null){
+    chainBanner.style.display = 'block';
+    chainBanner.innerHTML = `Chain from root #${_chainRoot} — ${rows.length} trade(s)
+      &nbsp;<span onclick="exitChain()" style="cursor:pointer;color:#58a6ff">✕ exit chain view</span>`;
+  } else {
+    chainBanner.style.display = 'none';
+  }
+
+  document.getElementById('db-tbody').innerHTML = rows.slice(0, 500).map(buildRow).join('');
+  document.getElementById('row-count').textContent = rows.length + ' rows';
+  document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+
+  // P&L summary
+  const closed = rows.filter(r => r.pnl_points != null);
+  if(closed.length){
+    const net  = closed.reduce((s,r) => s+r.pnl_points, 0);
+    const wins = closed.filter(r => r.pnl_points > 0).length;
+    const el = document.getElementById('filter-pnl');
+    el.textContent = `${wins}W / ${closed.length-wins}L  NET: ${net>=0?'+':''}${net.toFixed(2)}pts`;
+    el.style.color = net >= 0 ? '#3fb950' : '#f85149';
+  } else {
+    document.getElementById('filter-pnl').textContent = '';
+  }
+}
+
+function sortBy(k){
+  if(_sortKey===k) _sortAsc=!_sortAsc; else {_sortKey=k;_sortAsc=false;}
+  applyFilters();
+}
+
+function clearFilters(){
+  ['f-status','f-source','f-dir','f-type','f-reason'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-date-from').value='';
+  document.getElementById('f-date-to').value='';
+  document.getElementById('f-replenished').checked=false;
+  applyFilters();
+}
+
+// ── Row builder ───────────────────────────────────────────────────────────
+function pnlFmt(v){
+  if(v==null) return '';
+  const s = (v>=0?'+':'')+v.toFixed(2);
+  return `<span class="${v>0?'pnl-pos':'pnl-neg'}">${s}</span>`;
+}
+function buildRow(r){
+  const depth = isReplenished(r) ? chainDepth(r) : 0;
+  const indent = '&nbsp;'.repeat(depth * 3);
+  const rpTag = isReplenished(r)
+    ? `${indent}<span onclick="showChain(${r.id})" title="Click to trace chain from root #${chainRoot(r.id)}"
+         style="color:#79c0ff;font-size:10px;cursor:pointer">↻#${r.parent_command_id}</span>`
+    : (chainIds(r.id).size > 1
+        ? `<span onclick="showChain(${r.id})" title="Click to trace ${chainIds(r.id).size} trades in chain"
+             style="color:#58a6ff;font-size:10px;cursor:pointer">⊕chain</span>`
+        : '');
+  const src = r.source ? `<span style="font-size:10px;color:#6e7681">${r.source.replace('random_','')}</span>` : '';
+  return `<tr>
+    <td>${r.id}</td>
+    <td class="ts">${(r.created_at||'').slice(0,16)}</td>
+    <td>${src}</td>
+    <td>${rpTag}</td>
+    <td>${r.symbol}</td>
+    <td><span class="${r.direction}">${r.direction}</span></td>
+    <td><span class="${r.entry_type}">${r.entry_type}</span></td>
+    <td>${r.entry_price}</td>
+    <td>${r.tp_price}</td>
+    <td>${r.sl_price}</td>
+    <td>${r.bracket_size}</td>
+    <td>${badge(r.status)}</td>
+    <td>${r.fill_price!=null?r.fill_price:''}</td>
+    <td>${r.exit_price!=null?r.exit_price:''}</td>
+    <td class="ts">${r.exit_reason||''}</td>
+    <td>${pnlFmt(r.pnl_points)}</td>
+    <td class="ts">${(r.fill_time||'').slice(0,16)}</td>
+    <td class="ts">${(r.exit_time||'').slice(0,16)}</td>
+  </tr>`;
+}
+
+// ── Load & poll ───────────────────────────────────────────────────────────
+function load(){
+  fetch('/api/commands?limit=2000').then(r=>r.json()).then(rows=>{
+    _allRows = rows;
+    applyFilters();
+  });
+}
+load();
+setInterval(load, 10000);
+</script>
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}IB Trace — Galao{% endblock %}
+{% block content %}
+<div style="display:flex;gap:24px;align-items:flex-start">
+<div style="flex:1;min-width:0">
+
+<h2>IB Events (live)
+  <span id="refresh-indicator" style="font-size:10px"></span>
+  <span id="event-count" style="font-size:11px;color:#8b949e;margin-left:8px"></span>
+</h2>
+<div class="filters">
+  <select id="f-type" onchange="applyFilters()">
+    <option value="">All Types</option>
+    <option value="ERROR">ERROR</option>
+    <option value="WARNING">WARNING</option>
+    <option value="INFO">INFO</option>
+    <option value="RECONNECT">RECONNECT</option>
+    <option value="DISCONNECT">DISCONNECT</option>
+  </select>
+  <select id="f-comp" onchange="applyFilters()">
+    <option value="">All Components</option>
+  </select>
+  <label style="color:#8b949e;font-size:12px">
+    <input type="checkbox" id="auto-scroll" checked style="width:auto">
+    Auto-scroll
+  </label>
+  <button onclick="clearEvents()">Clear display</button>
+</div>
+<div id="trace-box">
+  <div style="color:#6e7681;font-size:11px">Connecting...</div>
+</div>
+
+</div><!-- end left col -->
+
+<!-- IB Gateway raw log -->
+<div style="width:420px;flex-shrink:0">
+  <h2 style="display:flex;align-items:center;gap:8px">
+    IB Gateway Log
+    <button onclick="loadGwLog()" style="font-size:11px;padding:2px 8px;
+      background:#21262d;color:#c9d1d9;border:1px solid #30363d;
+      border-radius:4px;cursor:pointer">Refresh</button>
+  </h2>
+  <div id="gw-file" style="font-size:10px;color:#6e7681;margin-bottom:4px"></div>
+  <div id="gw-box"
+    style="background:#0d1117;border:1px solid #30363d;border-radius:4px;
+           padding:8px;height:500px;overflow-y:auto;font-size:10px;
+           line-height:1.4;white-space:pre-wrap;word-break:break-all;color:#8b949e">
+    <span style="color:#6e7681">Set ib.gateway_log_dir in config.yaml to enable.</span>
+  </div>
+</div>
+
+</div><!-- end flex row -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _allEvents = [];
+let _cleared_before = 0;
+
+function applyFilters(){
+  const ft = document.getElementById('f-type').value;
+  const fc = document.getElementById('f-comp').value;
+  let rows = _allEvents.filter(e => e.id > _cleared_before);
+  if(ft) rows = rows.filter(e => e.event_type === ft);
+  if(fc) rows = rows.filter(e => e.component === fc);
+
+  const box = document.getElementById('trace-box');
+  if(rows.length === 0){
+    box.innerHTML = '<div style="color:#6e7681;font-size:11px">No events match filter.</div>';
+    return;
+  }
+
+  box.innerHTML = rows.map(e => {
+    const cls = 'trace-' + e.event_type;
+    const code = e.code ? ` [${e.code}]` : '';
+    const ts = e.created_at ? e.created_at.slice(11,19) : '';
+    return `<div class="${cls}"><span class="ts">${ts}</span> `+
+      `<b>${e.event_type}${code}</b> `+
+      `<span style="color:#79c0ff">${e.component}</span> `+
+      `${escHtml(e.message)}</div>`;
+  }).join('');
+
+  document.getElementById('event-count').textContent = rows.length + ' events';
+
+  const autoScroll = document.getElementById('auto-scroll').checked;
+  if(autoScroll) box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function populateCompFilter(events){
+  const sel = document.getElementById('f-comp');
+  const cur = sel.value;
+  const comps = [...new Set(events.map(e => e.component))].sort();
+  sel.innerHTML = '<option value="">All Components</option>' +
+    comps.map(c => `<option value="${c}">${c}</option>`).join('');
+  if(cur) sel.value = cur;
+}
+
+function clearEvents(){
+  if(_allEvents.length > 0){
+    _cleared_before = _allEvents[_allEvents.length - 1].id;
+  }
+  applyFilters();
+}
+
+function refresh(){
+  fetch('/api/ib-events?limit=500')
+    .then(r=>r.json()).then(rows=>{
+      _allEvents = rows.sort((a,b) => a.id - b.id);
+      populateCompFilter(_allEvents);
+      applyFilters();
+      document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+    });
+}
+refresh();
+setInterval(refresh, 3000);
+
+// ── IB Gateway raw log ────────────────────────────────────────────────────────
+function loadGwLog(){
+  fetch('/api/ib-gateway-log?limit=300')
+    .then(r=>r.json())
+    .then(d=>{
+      const box  = document.getElementById('gw-box');
+      const info = document.getElementById('gw-file');
+      if(d.error && !d.lines.length){
+        box.textContent = d.error;
+        info.textContent = '';
+        return;
+      }
+      info.textContent = d.file || '';
+      box.textContent = d.lines.join('');
+      box.scrollTop = box.scrollHeight;
+    })
+    .catch(e=>{ document.getElementById('gw-box').textContent = ''+e; });
+}
+loadGwLog();
+setInterval(loadGwLog, 10000);
+</script>
+{% endblock %}

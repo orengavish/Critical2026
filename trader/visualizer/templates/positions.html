@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Positions — Galao{% endblock %}
+{% block content %}
+<h2>Open Positions <span id="refresh-indicator"></span></h2>
+<div style="overflow-x:auto">
+<table>
+  <thead><tr>
+    <th onclick="sortTable(0)">ID ▾</th>
+    <th>Cmd</th><th>Symbol</th><th>Dir</th>
+    <th>Qty</th><th>Entry</th><th>Entry Time</th>
+    <th>Current</th><th>Move (pts)</th><th>Unreal P&L</th>
+    <th>TP</th><th>SL</th><th>Status</th><th>Updated</th>
+  </tr></thead>
+  <tbody id="pos-tbody"></tbody>
+</table>
+</div>
+<div id="pnl-footer" style="margin-top:10px;font-size:13px;color:#8b949e"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _price = null;
+
+function buildRow(r){
+  const move = (_price && r.entry_price)
+    ? (r.direction === 'BUY'
+        ? (_price - r.entry_price).toFixed(2)
+        : (r.entry_price - _price).toFixed(2))
+    : '';
+  const moveClass = move !== '' ? (parseFloat(move) >= 0 ? 'pnl-pos' : 'pnl-neg') : '';
+  const pnl = move !== '' ? (parseFloat(move) * r.quantity).toFixed(2) : '';
+  const pnlClass = pnl !== '' ? (parseFloat(pnl) >= 0 ? 'pnl-pos' : 'pnl-neg') : '';
+  const cmd = r.command_id || '';
+
+  // pull TP/SL from linked command if available
+  const tp = r.tp_price != null ? r.tp_price : '';
+  const sl = r.sl_price != null ? r.sl_price : '';
+
+  const entry_time = r.entry_time ? r.entry_time.slice(11,19) : '';
+  const updated = r.updated_at ? r.updated_at.slice(11,19) : '';
+
+  return `<tr>
+    <td>${r.id}</td>
+    <td>${cmd}</td>
+    <td>${r.symbol}</td>
+    <td>${dir(r.direction)}</td>
+    <td>${r.quantity}</td>
+    <td>${r.entry_price}</td>
+    <td class="ts">${entry_time}</td>
+    <td>${_price ? _price.toFixed(2) : '--'}</td>
+    <td class="${moveClass}">${move}</td>
+    <td class="${pnlClass}">${pnl}</td>
+    <td>${tp}</td>
+    <td>${sl}</td>
+    <td>${badge(r.status)}</td>
+    <td class="ts">${updated}</td>
+  </tr>`;
+}
+
+function refresh(){
+  fetch('/api/price').then(r=>r.json()).then(d=>{
+    _price = d.price || null;
+  }).catch(()=>{});
+
+  fetch('/api/positions').then(r=>r.json()).then(rows=>{
+    document.getElementById('pos-tbody').innerHTML = rows.map(buildRow).join('');
+    document.getElementById('refresh-indicator').textContent = new Date().toTimeString().slice(0,8);
+
+    // Footer summary
+    let totalPnl = 0, count = 0;
+    rows.forEach(r => {
+      if(_price && r.entry_price){
+        const move = r.direction === 'BUY'
+          ? (_price - r.entry_price)
+          : (r.entry_price - _price);
+        totalPnl += move * r.quantity;
+        count++;
+      }
+    });
+    const foot = document.getElementById('pnl-footer');
+    if(count > 0){
+      foot.innerHTML = `${count} open position(s) — total unrealized: `+
+        `<span class="${totalPnl>=0?'pnl-pos':'pnl-neg'}">${totalPnl>=0?'+':''}${totalPnl.toFixed(2)} pts</span>`;
+    } else {
+      foot.textContent = rows.length === 0 ? 'No open positions.' : '';
+    }
+  });
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+{% endblock %}

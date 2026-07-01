@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.log
+/data/
+logs/
+*.pptx
+*.csv
+.claude/settings.local.json
+
+# out of scope for this project
+back-trading/
+versions/
+june/
+algo-analyzer/
+tmp_vt_summary.py
+monthlyplanApr.md
+weekplan_jun6.md
+trader/compare_fetch.py
+trader/create_presentation.py
